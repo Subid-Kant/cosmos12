@@ -387,6 +387,17 @@ app.patch('/api/registrations/:id/verify', async (req, res) => {
   }
 });
 
+// GET /api/registrations/:id/status — Polling endpoint for participant to check if admin verified them
+app.get('/api/registrations/:id/status', async (req, res) => {
+  try {
+    const reg = await Registration.findOne({ registrationId: req.params.id }).select('paymentStatus');
+    if (!reg) return res.status(404).json({ error: 'Registration not found.' });
+    res.json({ status: reg.paymentStatus });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error.' });
+  }
+});
+
 // GET /api/registrations/:id/screenshot — Serve screenshot dynamically from MongoDB
 app.get('/api/registrations/:id/screenshot', async (req, res) => {
   try {
