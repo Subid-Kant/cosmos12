@@ -483,6 +483,23 @@ const BugArena = ({ onAbort }) => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [globalEventPhase]);
 
+  // Force sync local tab when admin reverses phases
+  const prevGlobalPhaseRef = React.useRef(globalEventPhase);
+  useEffect(() => {
+    if (isAdminLoggedIn) return;
+    
+    if (prevGlobalPhaseRef.current !== globalEventPhase) {
+      if (globalEventPhase === 'pre_event') {
+        setPhase('create');
+      } else if (globalEventPhase === 'coding') {
+        if (!submittedKey) setPhase('create');
+      } else if (globalEventPhase === 'exchange') {
+        if (phase === 'hunt') setPhase('exchange');
+      }
+      prevGlobalPhaseRef.current = globalEventPhase;
+    }
+  }, [globalEventPhase, submittedKey, isAdminLoggedIn, phase]);
+
   // Poll lock status when locked — only unlock on EXPLICIT admin approval
   useEffect(() => {
     if (!isLocked || !teamName) return;
@@ -641,9 +658,9 @@ const BugArena = ({ onAbort }) => {
     setIsLoadingAdminData(false);
   };
 
-  // Auto-refresh cheat reports every 5s when admin is on the proctoring tab
+  // Auto-refresh cheat reports every 5s when admin is logged in (so badge updates)
   useEffect(() => {
-    if (!isAdminLoggedIn || adminActiveTab !== 'proctoring') return;
+    if (!isAdminLoggedIn) return;
     const intervalId = setInterval(async () => {
       try {
         const res = await fetch(`${SERVER_BASE}/api/cheat-reports`);
@@ -652,7 +669,7 @@ const BugArena = ({ onAbort }) => {
       } catch (e) { /* silent */ }
     }, 5000);
     return () => clearInterval(intervalId);
-  }, [isAdminLoggedIn, adminActiveTab]);
+  }, [isAdminLoggedIn]);
 
   // Admin dismisses / clears a cheat report
   const handleDismissCheatReport = async (reportId) => {
