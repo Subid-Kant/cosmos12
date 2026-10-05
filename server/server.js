@@ -178,7 +178,33 @@ const getRegistryDoc = async () => {
   return doc;
 };
 
-// ─── Health Check (Render.com uses this to know the server is alive) ──────────
+// ─── Admin Login (credentials stored only in server environment) ────────────
+// A strict rate limiter: max 5 attempts per 15 minutes per IP
+const adminLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { error: 'Too many login attempts. Try again in 15 minutes.' },
+});
+
+app.post('/api/admin/login', adminLoginLimiter, (req, res) => {
+  const { username, password } = req.body;
+  const ADMIN_USER = process.env.ADMIN_USERNAME || 'cybertech';
+  const ADMIN_PASS = process.env.ADMIN_PASSWORD || 'Asryyvy@45';
+
+  if (
+    typeof username === 'string' &&
+    typeof password === 'string' &&
+    username.trim() === ADMIN_USER &&
+    password === ADMIN_PASS
+  ) {
+    console.log(`👑 Admin login at ${new Date().toISOString()}`);
+    return res.json({ success: true });
+  }
+  console.warn(`⚠️  Failed admin login attempt for username: "${username}"`);
+  res.status(401).json({ error: 'Invalid credentials.' });
+});
+
+// ─── Health Check (Render.com uses this to know the server is alive) ───────────
 app.get('/health', (req, res) => {
   const dbState = mongoose.connection.readyState;
   // 0=disconnected, 1=connected, 2=connecting, 3=disconnecting

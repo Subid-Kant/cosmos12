@@ -435,7 +435,6 @@ const BugArena = ({ onAbort }) => {
     };
   }, [regPhase, paymentStatus, registrationId]);
 
-  // Secret admin keyboard shortcut: Ctrl + Shift + A (invisible to students)
   useEffect(() => {
     const handleKeyCombo = (e) => {
       if (e.ctrlKey && e.shiftKey && e.key === 'A') {
@@ -594,17 +593,30 @@ const BugArena = ({ onAbort }) => {
     }
   };
 
-  const handleAdminLogin = (e) => {
+  const handleAdminLogin = async (e) => {
     e.preventDefault();
-    if (adminUsernameInput.trim() === 'cybertech' && adminPasswordInput === 'Asryyvy@45') {
-      setIsAdminLoggedIn(true);
-      setAdminModalOpen(false);
-      setPhase('admin');
-      setAdminActiveTab('registrations');
-      fetchAdminRegistryData();
-      showToast('Welcome Admin! Portal unlocked.');
-    } else {
-      showToast('Invalid Username or Password!', 'error');
+    try {
+      const res = await fetch(`${SERVER_BASE}/api/admin/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: adminUsernameInput.trim(),
+          password: adminPasswordInput,
+        }),
+      });
+      if (res.ok) {
+        setIsAdminLoggedIn(true);
+        setAdminModalOpen(false);
+        setPhase('admin');
+        setAdminActiveTab('registrations');
+        fetchAdminRegistryData();
+        showToast('Welcome! Portal unlocked.');
+      } else {
+        const data = await res.json();
+        showToast(data.error || 'Invalid credentials.', 'error');
+      }
+    } catch {
+      showToast('Cannot reach server. Try again.', 'error');
     }
   };
 
