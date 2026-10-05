@@ -916,11 +916,26 @@ const BugArena = ({ onAbort }) => {
     setIsDecoding(true);
     const cleanKey = rawInput.toUpperCase();
 
+    // ── Anti-cheat: Block a team from decoding their own submitted key ──
+    if (submittedKey && cleanKey === submittedKey.toUpperCase()) {
+      setIsDecoding(false);
+      showToast('❌ You cannot decode your own key! The admin will assign you a rival team\'s code.', 'error');
+      setImportString('');
+      return;
+    }
+
     // Check 1: Is it a 6-character key in localStorage?
     const localData = localStorage.getItem(`nexus_bug_${cleanKey}`);
     if (localData) {
       try {
         const parsed = JSON.parse(localData);
+        // Guard: also block if the payload team matches their own team name
+        if (parsed.team && teamName && parsed.team.trim().toLowerCase() === teamName.trim().toLowerCase()) {
+          setIsDecoding(false);
+          showToast('❌ This code belongs to your own team — you cannot hunt your own bugs!', 'error');
+          setImportString('');
+          return;
+        }
         setDecodedData(parsed);
         setIsDecoding(false);
         setPhase('hunt');
@@ -937,6 +952,13 @@ const BugArena = ({ onAbort }) => {
       const registry = await getRes.json();
       if (registry && registry[cleanKey]) {
         const payload = registry[cleanKey];
+        // Anti-cheat: block if the payload belongs to the same team
+        if (payload.team && teamName && payload.team.trim().toLowerCase() === teamName.trim().toLowerCase()) {
+          setIsDecoding(false);
+          showToast('❌ This code belongs to your own team — you cannot hunt your own bugs!', 'error');
+          setImportString('');
+          return;
+        }
         localStorage.setItem(`nexus_bug_${cleanKey}`, JSON.stringify(payload));
         setDecodedData(payload);
         setIsDecoding(false);
