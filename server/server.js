@@ -526,12 +526,16 @@ app.get('/api/cheat-reports', async (req, res) => {
 // GET /api/cheat-reports/lock-status/:teamName — Participant polls to check if admin approved re-entry
 app.get('/api/cheat-reports/lock-status/:teamName', async (req, res) => {
   try {
-    const report = await CheatReport.findOne({ teamName: req.params.teamName });
-    if (!report) return res.json({ locked: false, reentryApproved: false, reentryRequested: false });
+    const report = await CheatReport.findOne({ teamName: req.params.teamName }).lean();
+    if (!report) {
+      // No record at all — team has no violations. Return noReport so frontend does NOT auto-unlock.
+      return res.json({ noReport: true, locked: false, reentryApproved: false, reentryRequested: false });
+    }
     res.json({
       locked:           report.locked,
       reentryRequested: report.reentryRequested,
-      reentryApproved:  report.reentryApproved || report.adminUnlocked,
+      // Only unlock when admin EXPLICITLY approved — never just because locked===false
+      reentryApproved:  report.reentryApproved === true || report.adminUnlocked === true,
       warnCount:        report.warnCount,
     });
   } catch (err) {
@@ -623,7 +627,7 @@ const server = app.listen(PORT, () => {
 const shutdown = (signal) => {
   console.log(`\n${signal} received — shutting down gracefully...`);
   server.close(() => {
-    mongoose.connection.close(false, () => {
+    mongoose.connection.close(false).then(() => {
       console.log('✅ MongoDB disconnected. Goodbye!');
       process.exit(0);
     });

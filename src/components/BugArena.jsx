@@ -436,14 +436,14 @@ const BugArena = ({ onAbort }) => {
         } catch (e) {
           // ignore network errors
         }
-      }, 3000);
+      }, 8000); // 8s interval to avoid hammering the server
     }
     return () => {
       if (intervalId) clearInterval(intervalId);
     };
   }, [regPhase, paymentStatus, registrationId]);
 
-  // Poll Global Event Phase
+  // Poll Global Event Phase — every 8s to reduce lag
   useEffect(() => {
     if (!isRegistered) return;
     const intervalId = setInterval(async () => {
@@ -456,7 +456,7 @@ const BugArena = ({ onAbort }) => {
       } catch (err) {
         // ignore
       }
-    }, 4000);
+    }, 8000);
     return () => clearInterval(intervalId);
   }, [isRegistered]);
 
@@ -476,14 +476,15 @@ const BugArena = ({ onAbort }) => {
     }
   }, [globalEventPhase, phase, reportSubmitted, teamName]);
 
-  // Poll lock status when locked
+  // Poll lock status when locked — only unlock on EXPLICIT admin approval
   useEffect(() => {
     if (!isLocked || !teamName) return;
     const intervalId = setInterval(async () => {
       try {
         const res = await fetch(`${SERVER_BASE}/api/cheat-reports/lock-status/${encodeURIComponent(teamName)}`);
         const data = await res.json();
-        if (data.reentryApproved || !data.locked) {
+        // ONLY unlock if admin explicitly approved — never auto-unlock on missing record
+        if (data.reentryApproved === true) {
           setIsLocked(false);
           setCheatWarnings(0);
           setReentryRequested(false);
@@ -492,7 +493,7 @@ const BugArena = ({ onAbort }) => {
       } catch (e) {
         // ignore
       }
-    }, 3000);
+    }, 5000); // 5s is enough — admin action is not instant anyway
     return () => clearInterval(intervalId);
   }, [isLocked, teamName]);
 
@@ -612,31 +613,39 @@ const BugArena = ({ onAbort }) => {
   const fetchAdminRegistryData = async () => {
     setIsLoadingAdminData(true);
     try {
-      const res = await fetch(REGISTRY_URL);
+      const [res, regRes, statsRes, cheatRes] = await Promise.all([
+        fetch(REGISTRY_URL),
+        fetch(`${SERVER_BASE}/api/registrations`),
+        fetch(`${SERVER_BASE}/api/registrations/stats`),
+        fetch(`${SERVER_BASE}/api/cheat-reports`),
+      ]);
       const data = await res.json();
       setAdminRegistryData(data || {});
-
-      // Also fetch registrations
-      const regRes = await fetch(`${SERVER_BASE}/api/registrations`);
       const regData = await regRes.json();
       setAdminRegistrations(Array.isArray(regData) ? regData : []);
-
-      // Fetch stats
-      const statsRes = await fetch(`${SERVER_BASE}/api/registrations/stats`);
       const statsData = await statsRes.json();
       setAdminRegStats(statsData);
-
-      // Fetch cheat reports
-      const cheatRes = await fetch(`${SERVER_BASE}/api/cheat-reports`);
       const cheatData = await cheatRes.json();
       setAdminCheatReports(Array.isArray(cheatData) ? cheatData : []);
-
       showToast('Portal data refreshed!');
     } catch (e) {
       showToast('Failed to fetch data — ensure server is running', 'error');
     }
     setIsLoadingAdminData(false);
   };
+
+  // Auto-refresh cheat reports every 5s when admin is on the proctoring tab
+  useEffect(() => {
+    if (!isAdminLoggedIn || adminActiveTab !== 'proctoring') return;
+    const intervalId = setInterval(async () => {
+      try {
+        const res = await fetch(`${SERVER_BASE}/api/cheat-reports`);
+        const data = await res.json();
+        if (Array.isArray(data)) setAdminCheatReports(data);
+      } catch (e) { /* silent */ }
+    }, 5000);
+    return () => clearInterval(intervalId);
+  }, [isAdminLoggedIn, adminActiveTab]);
 
   // Admin dismisses / clears a cheat report
   const handleDismissCheatReport = async (reportId) => {
