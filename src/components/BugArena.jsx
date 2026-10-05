@@ -435,6 +435,23 @@ const BugArena = ({ onAbort }) => {
     };
   }, [regPhase, paymentStatus, registrationId]);
 
+  // Secret admin keyboard shortcut: Ctrl + Shift + A (invisible to students)
+  useEffect(() => {
+    const handleKeyCombo = (e) => {
+      if (e.ctrlKey && e.shiftKey && e.key === 'A') {
+        e.preventDefault();
+        if (isAdminLoggedIn) {
+          setPhase('admin');
+          fetchAdminRegistryData();
+        } else {
+          setAdminModalOpen(true);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyCombo);
+    return () => window.removeEventListener('keydown', handleKeyCombo);
+  }, [isAdminLoggedIn]);
+
   // Proctoring is ONLY active when user is in code-writing phases
   // (not during registration, setup, or admin mode)
   const isProctoringActive =
@@ -579,7 +596,7 @@ const BugArena = ({ onAbort }) => {
 
   const handleAdminLogin = (e) => {
     e.preventDefault();
-    if (adminUsernameInput.trim() === 'admin' && adminPasswordInput === 'nexusadmin2026') {
+    if (adminUsernameInput.trim() === 'cybertech' && adminPasswordInput === 'Asryyvy@45') {
       setIsAdminLoggedIn(true);
       setAdminModalOpen(false);
       setPhase('admin');
@@ -2407,20 +2424,15 @@ const BugArena = ({ onAbort }) => {
         <span>Back to Nexus</span>
       </button>
 
-      {/* Secret Admin Portal Login Button */}
-      <button
-        className="ba-admin-btn"
-        onClick={() => {
-          if (isAdminLoggedIn) {
-            setPhase('admin');
-            fetchAdminRegistryData();
-          } else {
-            setAdminModalOpen(true);
-          }
-        }}
-      >
-        <span>🔐 Admin Portal</span>
-      </button>
+      {/* Secret Admin Portal — triggered by Ctrl+Shift+A only. No visible button. */}
+      {isAdminLoggedIn && (
+        <button
+          className="ba-admin-btn"
+          onClick={() => { setPhase('admin'); fetchAdminRegistryData(); }}
+        >
+          <span>👑 Admin Panel</span>
+        </button>
+      )}
 
       {/* Admin Login Modal */}
       {adminModalOpen && (
