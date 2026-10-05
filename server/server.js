@@ -157,14 +157,16 @@ const RegistrationSchema = new mongoose.Schema({
 const Registration = mongoose.model('Registration', RegistrationSchema);
 
 const CheatReportSchema = new mongoose.Schema({
-  teamName:     { type: String, required: true },
-  reason:       { type: String, required: true },
-  warnCount:    { type: Number, default: 1 },
-  phase:        { type: String, default: '' },
-  timestamp:    { type: Number, default: () => Date.now() },
-  locked:       { type: Boolean, default: false },
-  unlockCode:   { type: String, default: '' },
-  adminUnlocked:{ type: Boolean, default: false },
+  teamName:          { type: String, required: true, unique: true }, // ONE doc per team
+  registrationId:    { type: String, default: '' },
+  reason:            { type: String, required: true },   // latest violation reason
+  warnCount:         { type: Number, default: 1 },
+  phase:             { type: String, default: '' },
+  timestamp:         { type: Number, default: () => Date.now() },
+  locked:            { type: Boolean, default: false },
+  reentryRequested:  { type: Boolean, default: false }, // player pressed "Request Re-entry"
+  reentryApproved:   { type: Boolean, default: false }, // admin approved
+  adminUnlocked:     { type: Boolean, default: false }, // legacy compat
 }, { timestamps: true });
 const CheatReport = mongoose.model('CheatReport', CheatReportSchema);
 
@@ -442,25 +444,67 @@ app.get('/api/registrations/:id/screenshot', async (req, res) => {
   }
 });
 
+// ─── Arena Login (Event Day) ─────────────────────────────────────────────────
+// Players log in on event day using their Registration ID.
+// Only 'verified' registrations are allowed through.
+app.post('/api/arena-login', async (req, res) => {
+  try {
+    const { registrationId } = req.body;
+    if (!registrationId?.trim()) {
+      return res.status(400).json({ error: 'Registration ID is required.' });
+    }
+    const reg = await Registration.findOne({ registrationId: registrationId.trim().toUpperCase() });
+    if (!reg) {
+      return res.status(404).json({ error: 'Registration ID not found. Check your ID and try again.' });
+    }
+    if (reg.paymentStatus === 'rejected') {
+      return res.status(403).json({ error: 'Your registration was rejected. Contact the organizer.' });
+    }
+    if (reg.paymentStatus === 'pending') {
+      return res.status(403).json({ status: 'pending', error: 'Your payment is still under review. Please wait for admin verification.' });
+    }
+    // verified
+    console.log(`🎮 Arena login: ${reg.registrationId} [${reg.teamType}] ${reg.members.map(m => m.name).join(' & ')}`);
+    res.json({
+      success: true,
+      registrationId: reg.registrationId,
+      teamType: reg.teamType,
+      members: reg.members.map(m => ({ name: m.name, email: m.email })),
+    });
+  } catch (err) {
+    console.error('Arena login error:', err);
+    res.status(500).json({ error: 'Server error.' });
+  }
+});
+
 // ─── Proctoring / Cheat Report Routes ────────────────────────────────────────
 
-// POST /api/cheat-report — Real-time proctoring violation from participant
+// POST /api/cheat-report — Upsert: one record per team (updates on repeat violations)
 app.post('/api/cheat-report', cheatLimiter, async (req, res) => {
   try {
-    const { teamName, reason, warnCount, phase, timestamp, locked, unlockCode } = req.body;
+    const { teamName, reason, warnCount, phase, timestamp, locked, registrationId } = req.body;
     if (!teamName?.trim() || !reason?.trim()) {
       return res.status(400).json({ error: 'teamName and reason are required.' });
     }
-    const report = await CheatReport.create({
-      teamName:    teamName.trim(),
-      reason:      reason.trim(),
-      warnCount:   warnCount  || 1,
-      phase:       phase      || '',
-      timestamp:   timestamp  || Date.now(),
-      locked:      locked     || false,
-      unlockCode:  unlockCode || '',
-      adminUnlocked: false,
-    });
+    // Upsert: findOneAndUpdate with upsert so there is only ONE doc per team
+    const report = await CheatReport.findOneAndUpdate(
+      { teamName: teamName.trim() },
+      {
+        $set: {
+          reason:           reason.trim(),
+          warnCount:        warnCount || 1,
+          phase:            phase || '',
+          timestamp:        timestamp || Date.now(),
+          locked:           locked || false,
+          registrationId:   registrationId || '',
+          // Reset re-entry request when a new violation comes in
+          reentryRequested: false,
+          reentryApproved:  false,
+          adminUnlocked:    false,
+        },
+      },
+      { upsert: true, new: true }
+    );
     console.log(`🚨 [${locked ? 'LOCKED' : `WARN ${warnCount}/3`}] ${teamName}: ${reason}`);
     res.status(201).json({ success: true, reportId: report._id });
   } catch (err) {
@@ -479,6 +523,54 @@ app.get('/api/cheat-reports', async (req, res) => {
   }
 });
 
+// GET /api/cheat-reports/lock-status/:teamName — Participant polls to check if admin approved re-entry
+app.get('/api/cheat-reports/lock-status/:teamName', async (req, res) => {
+  try {
+    const report = await CheatReport.findOne({ teamName: req.params.teamName });
+    if (!report) return res.json({ locked: false, reentryApproved: false, reentryRequested: false });
+    res.json({
+      locked:           report.locked,
+      reentryRequested: report.reentryRequested,
+      reentryApproved:  report.reentryApproved || report.adminUnlocked,
+      warnCount:        report.warnCount,
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error.' });
+  }
+});
+
+// PATCH /api/cheat-reports/:id/request-reentry — Player requests re-entry after being locked
+app.patch('/api/cheat-reports/:id/request-reentry', async (req, res) => {
+  try {
+    const report = await CheatReport.findByIdAndUpdate(
+      req.params.id,
+      { reentryRequested: true, reentryApproved: false },
+      { new: true }
+    );
+    if (!report) return res.status(404).json({ error: 'Report not found.' });
+    console.log(`🔔 Re-entry requested by team: ${report.teamName}`);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error.' });
+  }
+});
+
+// PATCH /api/cheat-reports/:id/approve-reentry — Admin approves re-entry
+app.patch('/api/cheat-reports/:id/approve-reentry', async (req, res) => {
+  try {
+    const report = await CheatReport.findByIdAndUpdate(
+      req.params.id,
+      { reentryApproved: true, adminUnlocked: true, locked: false },
+      { new: true }
+    );
+    if (!report) return res.status(404).json({ error: 'Report not found.' });
+    console.log(`✅ Re-entry approved for team: ${report.teamName}`);
+    res.json({ success: true, report });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error.' });
+  }
+});
+
 // DELETE /api/cheat-reports/:id/dismiss — Admin: remove a report
 app.delete('/api/cheat-reports/:id/dismiss', async (req, res) => {
   try {
@@ -489,12 +581,12 @@ app.delete('/api/cheat-reports/:id/dismiss', async (req, res) => {
   }
 });
 
-// PATCH /api/cheat-reports/:id/unlock — Admin: unlock a locked participant
+// PATCH /api/cheat-reports/:id/unlock — legacy compat
 app.patch('/api/cheat-reports/:id/unlock', async (req, res) => {
   try {
     const report = await CheatReport.findByIdAndUpdate(
       req.params.id,
-      { adminUnlocked: true },
+      { adminUnlocked: true, reentryApproved: true, locked: false },
       { new: true }
     );
     if (!report) return res.status(404).json({ error: 'Report not found.' });

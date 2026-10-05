@@ -380,6 +380,11 @@ const BugArena = ({ onAbort }) => {
   const [isRegistering, setIsRegistering] = useState(false);
   const [regError, setRegError] = useState('');
 
+  // ── Event Day Login State ──
+  const [eventDayMode, setEventDayMode] = useState(false);
+  const [loginRegId, setLoginRegId] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+
   // ── Admin Portal State ──
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
   const [adminModalOpen, setAdminModalOpen] = useState(false);
@@ -399,8 +404,8 @@ const BugArena = ({ onAbort }) => {
   // Proctoring Mode State
   const [cheatWarnings, setCheatWarnings] = useState(0);
   const [isLocked, setIsLocked] = useState(false);
-  const [lockUnlockCode, setLockUnlockCode] = useState(''); // random code admin gives to unlock
-  const [adminUnlockInput, setAdminUnlockInput] = useState(''); // participant enters this code
+  const [activeCheatReportId, setActiveCheatReportId] = useState(null);
+  const [reentryRequested, setReentryRequested] = useState(false);
 
   useEffect(() => {
     let i = 0;
@@ -435,6 +440,26 @@ const BugArena = ({ onAbort }) => {
     };
   }, [regPhase, paymentStatus, registrationId]);
 
+  // Poll lock status when locked
+  useEffect(() => {
+    if (!isLocked || !teamName) return;
+    const intervalId = setInterval(async () => {
+      try {
+        const res = await fetch(`${SERVER_BASE}/api/cheat-reports/lock-status/${encodeURIComponent(teamName)}`);
+        const data = await res.json();
+        if (data.reentryApproved || !data.locked) {
+          setIsLocked(false);
+          setCheatWarnings(0);
+          setReentryRequested(false);
+          showToast('Admin approved your re-entry. Play fair!', 'success');
+        }
+      } catch (e) {
+        // ignore
+      }
+    }, 3000);
+    return () => clearInterval(intervalId);
+  }, [isLocked, teamName]);
+
   useEffect(() => {
     const handleKeyCombo = (e) => {
       if (e.ctrlKey && e.shiftKey && e.key === 'A') {
@@ -459,20 +484,28 @@ const BugArena = ({ onAbort }) => {
   useEffect(() => {
     if (!isProctoringActive) return; // Guard: only run during code phases
 
-    const reportCheatToServer = (reason, warnCount, extraFields = {}) => {
-      fetch(`${SERVER_BASE}/api/cheat-report`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          teamName: teamName || 'Unknown Team',
-          reason,
-          warnCount,
-          phase,
-          timestamp: Date.now(),
-          locked: warnCount >= 3,
-          ...extraFields,
-        }),
-      }).catch(e => console.warn('Could not report cheat event:', e));
+    const reportCheatToServer = async (reason, warnCount) => {
+      try {
+        const res = await fetch(`${SERVER_BASE}/api/cheat-report`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            teamName: teamName || 'Unknown Team',
+            registrationId: registrationId || '',
+            reason,
+            warnCount,
+            phase,
+            timestamp: Date.now(),
+            locked: warnCount >= 3,
+          }),
+        });
+        const data = await res.json();
+        if (data.success && data.reportId) {
+          setActiveCheatReportId(data.reportId);
+        }
+      } catch (e) {
+        console.warn('Could not report cheat event:', e);
+      }
     };
 
     const handleCheatingAttempt = (reason) => {
@@ -480,10 +513,8 @@ const BugArena = ({ onAbort }) => {
         const newCount = prev + 1;
         if (newCount >= 3) {
           setIsLocked(true);
-          // Generate random unlock code
-          const code = Math.random().toString(36).substring(2, 10).toUpperCase();
-          setLockUnlockCode(code);
-          reportCheatToServer(`LOCKED — final trigger: ${reason}`, newCount, { unlockCode: code });
+          setReentryRequested(false);
+          reportCheatToServer(`LOCKED — final trigger: ${reason}`, newCount);
         } else {
           // Show inline warning toast
           setToast({ message: `🚨 PROCTORING WARNING ${newCount}/3: ${reason}`, type: 'error' });
@@ -582,14 +613,28 @@ const BugArena = ({ onAbort }) => {
     }
   };
 
-  // Admin unlocks a participant from the server side (marks them as unlocked)
+  // Admin unlocks a participant from the server side
   const handleAdminUnlockParticipant = async (reportId, teamName) => {
     try {
-      await fetch(`${SERVER_BASE}/api/cheat-reports/${reportId}/unlock`, { method: 'PATCH' });
-      setAdminCheatReports(prev => prev.map(r => r._id === reportId ? { ...r, adminUnlocked: true } : r));
+      await fetch(`${SERVER_BASE}/api/cheat-reports/${reportId}/approve-reentry`, { method: 'PATCH' });
+      setAdminCheatReports(prev => prev.map(r => r._id === reportId ? { ...r, reentryApproved: true, adminUnlocked: true, locked: false } : r));
       showToast(`✅ ${teamName} has been unlocked and can re-enter.`);
     } catch (e) {
       showToast('Could not unlock — server error', 'error');
+    }
+  };
+
+  const handleRequestReentry = async () => {
+    if (!activeCheatReportId) {
+      showToast('No active lock session found.', 'error');
+      return;
+    }
+    try {
+      await fetch(`${SERVER_BASE}/api/cheat-reports/${activeCheatReportId}/request-reentry`, { method: 'PATCH' });
+      setReentryRequested(true);
+      showToast('Re-entry request sent to admin. Please wait.');
+    } catch (e) {
+      showToast('Could not send request', 'error');
     }
   };
 
@@ -1020,8 +1065,86 @@ const BugArena = ({ onAbort }) => {
   };
 
   // ─── Render Registration / Payment Form ─────────────────────────────────
+  const handleEventDayLogin = async (e) => {
+    e.preventDefault();
+    if (!loginRegId.trim()) {
+      showToast('Please enter your Registration ID.', 'error');
+      return;
+    }
+    setIsLoggingIn(true);
+    try {
+      const res = await fetch(`${SERVER_BASE}/api/arena-login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ registrationId: loginRegId.trim() }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setRegistrationId(data.registrationId);
+        setIsRegistered(true);
+        // Pre-fill team details for setup phase
+        setRegTeamType(data.teamType);
+        const memberNames = data.members.map(m => m.name).join(' & ');
+        setTeamName(memberNames);
+        showToast('Login successful! Welcome to the Arena.');
+      } else {
+        showToast(data.error || 'Login failed.', 'error');
+      }
+    } catch (e) {
+      showToast('Cannot connect to server. Try again.', 'error');
+    }
+    setIsLoggingIn(false);
+  };
+
   const renderRegistrationForm = () => {
     const feeAmount = regTeamType === 'solo' ? 50 : 100;
+
+    if (eventDayMode) {
+      return (
+        <div className="ba-fade-in" style={{ maxWidth: '440px', margin: '4rem auto' }}>
+          <div className="ba-setup-card">
+            <div className="ba-setup-header">
+              <div className="ba-setup-dots"><span className="ba-setup-dot-r"/><span className="ba-setup-dot-y"/><span className="ba-setup-dot-g"/></div>
+              <div className="ba-setup-title-bar">event-day-login</div>
+            </div>
+            <form className="ba-setup-body" onSubmit={handleEventDayLogin}>
+              <h2 style={{ textAlign: 'center', color: '#00ffff', margin: '0 0 1rem', fontFamily: 'Space Grotesk, sans-serif' }}>Arena Login</h2>
+              <p style={{ color: '#a0a0c5', fontSize: '0.9rem', textAlign: 'center', marginBottom: '1.5rem', lineHeight: 1.6 }}>
+                Event day has arrived! Enter your verified Registration ID to access the arena.
+              </p>
+              <div className="ba-field-group">
+                <input
+                  type="text"
+                  className="ba-field-input"
+                  placeholder="Enter Registration ID (e.g. NEXUS-XXXX)"
+                  value={loginRegId}
+                  onChange={e => setLoginRegId(e.target.value.toUpperCase())}
+                  style={{ textAlign: 'center', letterSpacing: '2px', fontFamily: 'Courier New, monospace', fontWeight: 'bold' }}
+                />
+              </div>
+              <button
+                type="submit"
+                className="ba-neon-btn ba-btn-cyan"
+                style={{ width: '100%', marginTop: '0.8rem', padding: '0.8rem' }}
+                disabled={isLoggingIn}
+              >
+                {isLoggingIn ? 'Verifying...' : 'Enter Arena ⚡'}
+              </button>
+              
+              <div style={{ textAlign: 'center', marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                <button 
+                  type="button" 
+                  onClick={() => setEventDayMode(false)} 
+                  style={{ background: 'none', border: 'none', color: '#6b6b8a', fontSize: '0.85rem', cursor: 'pointer', textDecoration: 'underline' }}
+                >
+                  Need to register and pay instead?
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      );
+    }
 
     if (regPhase === 'done') {
       return (
@@ -1064,10 +1187,17 @@ const BugArena = ({ onAbort }) => {
 
     return (
       <div className="ba-fade-in">
-        <div className="ba-section-header">
+        <div className="ba-section-header" style={{ position: 'relative' }}>
           <div className="ba-section-line" />
           <h2 className="ba-section-title">💳 Register & Pay Entry Fee</h2>
           <div className="ba-section-line" />
+          <button 
+            className="ba-neon-btn ba-btn-sm" 
+            style={{ position: 'absolute', right: 0, background: 'rgba(0,255,255,0.1)', borderColor: 'rgba(0,255,255,0.4)', color: '#00ffff' }}
+            onClick={() => setEventDayMode(true)}
+          >
+            🎮 Event Day Login
+          </button>
         </div>
         <p className="ba-section-desc">
           Register your team and pay the entry fee to participate in Bug Arena. Scan the QR code below to pay via UPI.
@@ -2325,17 +2455,14 @@ const BugArena = ({ onAbort }) => {
                         </span>
                       </div>
 
-                      {/* Unlock code for admin — only shown when account is locked */}
-                      {report.locked && report.unlockCode && !report.adminUnlocked && (
-                        <div style={{ background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.3)', borderRadius: '10px', padding: '0.9rem 1.2rem', marginBottom: '0.8rem' }}>
-                          <div style={{ fontSize: '0.78rem', color: '#4ade80', fontWeight: 800, marginBottom: '0.4rem', fontFamily: 'Space Grotesk, sans-serif', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                            🔑 Admin Unlock Code for {report.teamName}:
+                      {/* Re-entry Request Banner */}
+                      {report.reentryRequested && !report.locked === false && (
+                        <div style={{ background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.4)', borderRadius: '10px', padding: '0.9rem 1.2rem', marginBottom: '0.8rem', animation: 'ba-pulse-warn 2s infinite' }}>
+                          <div style={{ fontSize: '0.85rem', color: '#fbbf24', fontWeight: 800, marginBottom: '0.2rem', fontFamily: 'Space Grotesk, sans-serif', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                            🔔 Re-entry Requested
                           </div>
-                          <div style={{ fontFamily: 'Courier New, monospace', fontSize: '1.5rem', fontWeight: 900, color: '#00ffff', letterSpacing: '0.25em', textShadow: '0 0 12px rgba(0,255,255,0.5)' }}>
-                            {report.unlockCode}
-                          </div>
-                          <div style={{ fontSize: '0.72rem', color: '#7a7a9e', marginTop: '0.4rem' }}>
-                            Share this code with the participant to restore their access.
+                          <div style={{ fontSize: '0.75rem', color: '#fff' }}>
+                            The participant is locked out and has requested to be readmitted to the arena.
                           </div>
                         </div>
                       )}
@@ -2392,31 +2519,22 @@ const BugArena = ({ onAbort }) => {
             </p>
             <p style={{ color: '#a0a0c5', fontSize: '0.83rem', margin: '0 0 1rem', lineHeight: 1.5 }}>
               Only the event administrator can re-enable your session.
-              Ask the admin to enter the unlock code from the Admin Portal.
+              Click the button below to request readmission. The system will automatically resume once approved.
             </p>
-            <input
-              type="text"
-              placeholder="Enter unlock code from admin..."
-              value={adminUnlockInput}
-              onChange={e => setAdminUnlockInput(e.target.value.toUpperCase())}
-              style={{ width: '100%', padding: '0.6rem 1rem', background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255,107,107,0.5)', borderRadius: '8px', color: '#fff', fontFamily: 'Space Grotesk, monospace', fontSize: '1.1rem', letterSpacing: '0.15em', textAlign: 'center', outline: 'none', boxSizing: 'border-box', marginBottom: '0.6rem' }}
-            />
-            <button
-              className="ba-neon-btn ba-btn-sm"
-              style={{ background: 'rgba(74,222,128,0.15)', borderColor: 'rgba(74,222,128,0.5)', color: '#4ade80', width: '100%' }}
-              onClick={() => {
-                if (adminUnlockInput.trim() === lockUnlockCode && lockUnlockCode) {
-                  setIsLocked(false);
-                  setCheatWarnings(0);
-                  setAdminUnlockInput('');
-                  showToast('✅ Session unlocked by admin. You may continue.');
-                } else {
-                  showToast('❌ Incorrect unlock code. Contact the administrator.', 'error');
-                }
-              }}
-            >
-              🔓 Unlock Session
-            </button>
+            {reentryRequested ? (
+              <div style={{ background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: '8px', padding: '0.8rem', color: '#fbbf24', fontSize: '0.9rem' }}>
+                ⏳ Request sent. Waiting for admin approval...
+              </div>
+            ) : (
+              <button
+                className="ba-neon-btn ba-btn-sm"
+                style={{ background: 'rgba(251,191,36,0.15)', borderColor: 'rgba(251,191,36,0.5)', color: '#fbbf24', width: '100%' }}
+                onClick={handleRequestReentry}
+                disabled={!activeCheatReportId}
+              >
+                🔔 Request Re-entry
+              </button>
+            )}
           </div>
           <button className="ba-neon-btn ba-btn-sm" style={{ background: 'rgba(255,95,86,0.1)', borderColor: 'rgba(255,95,86,0.4)', color: '#ff5f56', marginTop: '0.5rem' }} onClick={onAbort}>Exit Arena</button>
         </div>
