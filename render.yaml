@@ -16,4 +16,4 @@ services:
       - key: MONGO_URI
         sync: false # You must set this in the Render dashboard (MongoDB Atlas URI)
       - key: ALLOWED_ORIGINS
-        value: https://cosmos.42web.io
+        value: https://cosmos.42web.io,http://localhost:5173
