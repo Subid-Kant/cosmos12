@@ -369,6 +369,7 @@ const BugArena = ({ onAbort }) => {
   const [regPhase, setRegPhase] = useState('form'); // 'form' | 'qr' | 'done'
   const [isRegistered, setIsRegistered] = useState(false);
   const [registrationId, setRegistrationId] = useState('');
+  const [paymentStatus, setPaymentStatus] = useState('pending'); // 'pending' | 'verified' | 'rejected'
   const [regTeamType, setRegTeamType] = useState('solo'); // 'solo' | 'duo'
   const [regMembers, setRegMembers] = useState([
     { name: '', upiId: '', email: '' },
@@ -410,6 +411,29 @@ const BugArena = ({ onAbort }) => {
     }, 40);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    let intervalId;
+    if (regPhase === 'done' && paymentStatus === 'pending') {
+      intervalId = setInterval(async () => {
+        try {
+          const res = await fetch(`${SERVER_BASE}/api/registrations/${registrationId}/status`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.status === 'verified' || data.status === 'rejected') {
+              setPaymentStatus(data.status);
+              if (data.status === 'verified') clearInterval(intervalId);
+            }
+          }
+        } catch (e) {
+          // ignore network errors
+        }
+      }, 3000);
+    }
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [regPhase, paymentStatus, registrationId]);
 
   // Proctoring is ONLY active when user is in code-writing phases
   // (not during registration, setup, or admin mode)
@@ -973,13 +997,16 @@ const BugArena = ({ onAbort }) => {
     if (regPhase === 'done') {
       return (
         <div className="ba-fade-in" style={{ textAlign: 'center', padding: '3rem 1rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1.5rem' }}>
-          <div style={{ fontSize: '4rem' }}>🎉</div>
-          <h2 style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 'clamp(1.4rem, 4vw, 2rem)', fontWeight: 900, background: 'linear-gradient(135deg, #4ade80 0%, #00ffff 60%, #9d4edd 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text', margin: 0 }}>
-            REGISTRATION SUBMITTED!
+          <div style={{ fontSize: '4rem' }}>{paymentStatus === 'verified' ? '🎉' : paymentStatus === 'rejected' ? '❌' : '⏳'}</div>
+          <h2 style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 'clamp(1.4rem, 4vw, 2rem)', fontWeight: 900, background: paymentStatus === 'verified' ? 'linear-gradient(135deg, #4ade80 0%, #00ffff 60%, #9d4edd 100%)' : paymentStatus === 'rejected' ? 'linear-gradient(135deg, #ff5f56 0%, #ff0000 100%)' : 'linear-gradient(135deg, #fbbf24 0%, #d97706 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text', margin: 0 }}>
+            {paymentStatus === 'verified' ? 'PAYMENT VERIFIED!' : paymentStatus === 'rejected' ? 'PAYMENT REJECTED' : 'REGISTRATION SUBMITTED!'}
           </h2>
           <p style={{ color: '#a0a0c5', fontSize: '0.95rem', maxWidth: '440px', lineHeight: 1.7 }}>
-            Your registration is under review. The admin will verify your payment and confirm your slot.
-            Keep your Registration ID safe!
+            {paymentStatus === 'verified' 
+              ? 'Your slot is confirmed! You may now enter the arena.'
+              : paymentStatus === 'rejected'
+              ? 'Your payment screenshot was rejected by the admin. Please try registering again.'
+              : 'Your registration is under review. The admin will verify your payment and confirm your slot. Keep your Registration ID safe!'}
           </p>
           <div className="ba-reg-id-box">
             <span style={{ fontSize: '0.72rem', color: '#7a7a9e', textTransform: 'uppercase', letterSpacing: '0.1em', fontFamily: 'Space Grotesk, sans-serif' }}>Your Registration ID</span>
@@ -989,13 +1016,18 @@ const BugArena = ({ onAbort }) => {
             <button className="ba-neon-btn ba-btn-cyan" onClick={() => { navigator.clipboard.writeText(registrationId); showToast('Registration ID copied!'); }}>
               📋 Copy ID
             </button>
-            <button className="ba-neon-btn ba-btn-green" onClick={() => setIsRegistered(true)}>
+            <button 
+              className={`ba-neon-btn ${paymentStatus === 'verified' ? 'ba-btn-green' : 'ba-btn-yellow'}`} 
+              onClick={() => setIsRegistered(true)}
+              disabled={paymentStatus !== 'verified'}
+              style={{ opacity: paymentStatus !== 'verified' ? 0.5 : 1, cursor: paymentStatus !== 'verified' ? 'not-allowed' : 'pointer' }}
+            >
               <span className="ba-btn-icon">⚡</span>
-              Enter the Arena
+              {paymentStatus === 'verified' ? 'Enter the Arena' : paymentStatus === 'rejected' ? 'Access Denied' : 'Waiting for Admin...'}
             </button>
           </div>
-          <div style={{ background: 'rgba(74, 222, 128, 0.06)', border: '1px solid rgba(74, 222, 128, 0.2)', borderRadius: '12px', padding: '1rem 1.5rem', fontSize: '0.83rem', color: '#7a7a9e', maxWidth: '420px', textAlign: 'left', lineHeight: 1.7 }}>
-            <strong style={{ color: '#4ade80' }}>⚠️ Note:</strong> Your slot is confirmed only after admin verifies the payment screenshot. Status: <span style={{ color: '#fbbf24' }}>Pending Review</span>
+          <div style={{ background: paymentStatus === 'verified' ? 'rgba(74, 222, 128, 0.06)' : paymentStatus === 'rejected' ? 'rgba(255, 95, 86, 0.06)' : 'rgba(251, 191, 36, 0.06)', border: `1px solid ${paymentStatus === 'verified' ? 'rgba(74, 222, 128, 0.2)' : paymentStatus === 'rejected' ? 'rgba(255, 95, 86, 0.2)' : 'rgba(251, 191, 36, 0.2)'}`, borderRadius: '12px', padding: '1rem 1.5rem', fontSize: '0.83rem', color: '#7a7a9e', maxWidth: '420px', textAlign: 'left', lineHeight: 1.7 }}>
+            <strong style={{ color: paymentStatus === 'verified' ? '#4ade80' : paymentStatus === 'rejected' ? '#ff5f56' : '#fbbf24' }}>⚠️ Note:</strong> Your slot is confirmed only after admin verifies the payment screenshot. Status: <span style={{ color: paymentStatus === 'verified' ? '#4ade80' : paymentStatus === 'rejected' ? '#ff5f56' : '#fbbf24', fontWeight: 'bold' }}>{paymentStatus.toUpperCase()}</span>
           </div>
         </div>
       );
