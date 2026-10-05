@@ -460,21 +460,28 @@ const BugArena = ({ onAbort }) => {
     return () => clearInterval(intervalId);
   }, [isRegistered]);
 
-  // Auto-submit code if coding phase ends
+  // Auto-submit code if coding phase ends — only fires forward (exchange/hunting/post_event)
+  // Guard: isSetup ensures they're actually in the arena, not just polling
   useEffect(() => {
-    if ((globalEventPhase === 'exchange' || globalEventPhase === 'hunting' || globalEventPhase === 'post_event') && phase === 'create' && !submittedKey && !isSubmitting && teamName) {
+    if (
+      isSetup && teamName &&
+      (globalEventPhase === 'exchange' || globalEventPhase === 'hunting' || globalEventPhase === 'post_event') &&
+      phase === 'create' && !submittedKey && !isSubmitting
+    ) {
       showToast('Coding phase ended! Auto-submitting your code...', 'error');
       handleSubmitCode();
     }
-  }, [globalEventPhase, phase, submittedKey, isSubmitting, teamName]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [globalEventPhase]);
 
-  // Auto-submit report if hunting phase ends
+  // Auto-submit report if hunting phase ends — only fires when phase advances to post_event
   useEffect(() => {
-    if (globalEventPhase === 'post_event' && phase === 'hunt' && !reportSubmitted && teamName) {
+    if (isSetup && teamName && globalEventPhase === 'post_event' && phase === 'hunt' && !reportSubmitted) {
       showToast('Hunting phase ended! Auto-submitting your report...', 'error');
       handleGenerateReport();
     }
-  }, [globalEventPhase, phase, reportSubmitted, teamName]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [globalEventPhase]);
 
   // Poll lock status when locked — only unlock on EXPLICIT admin approval
   useEffect(() => {
@@ -1994,22 +2001,61 @@ const BugArena = ({ onAbort }) => {
     );
   };
 
-  // ── Render Admin Dashboard ──
+  // ── Phase order map for direction detection ──
+  const PHASE_ORDER = { pre_event: 0, coding: 1, exchange: 2, hunting: 3, post_event: 4 };
+  const PHASE_LABELS = {
+    pre_event:  { step: 1, label: 'Waiting Room',          desc: 'Players are logged in but cannot write code yet.' },
+    coding:     { step: 2, label: 'Coding Phase',          desc: 'Everyone can write and submit their buggy code.' },
+    exchange:   { step: 3, label: 'Code Exchange',         desc: 'Coding locked. Admin distributes keys to teams.' },
+    hunting:    { step: 4, label: 'Bug Hunting Phase',     desc: 'Teams decode rival code and submit bug reports.' },
+    post_event: { step: 5, label: 'Event Ended (Judging)', desc: 'All submissions locked. Admin reviews results.' },
+  };
+  const PHASE_REVERT_WARNINGS = {
+    pre_event:  'Players will be sent back to the Waiting Room. Their submitted codes and reports are SAFE.',
+    coding:     'Players will be returned to the Coding Phase. Already-submitted codes are SAFE — they will see their key.',
+    exchange:   'Players will return to the Exchange waiting room. Submitted codes and reports are SAFE.',
+    hunting:    'Players will be returned to the Hunting Phase. Previously submitted reports are SAFE.',
+    post_event: 'Event will be marked as ended again. All submissions are SAFE.',
+  };
+
   const handleUpdateGlobalPhase = async (newPhase) => {
+    const currentPhase = adminRegistryData?.globalState?.phase || 'pre_event';
+    const isGoingBack = PHASE_ORDER[newPhase] < PHASE_ORDER[currentPhase];
+    const isSamePhase = newPhase === currentPhase;
+
+    if (isSamePhase) return; // no-op
+
+    if (isGoingBack) {
+      const warning = PHASE_REVERT_WARNINGS[newPhase];
+      const confirmed = window.confirm(
+        `⚠️ REVERSE PHASE?\n\n` +
+        `You are going BACK from "${PHASE_LABELS[currentPhase].label}" → "${PHASE_LABELS[newPhase].label}".\n\n` +
+        `${warning}\n\nClick OK to confirm.`
+      );
+      if (!confirmed) return;
+    }
+
     try {
       const getRes = await fetch(REGISTRY_URL);
       const registry = await getRes.json();
       if (!registry.globalState) registry.globalState = {};
       registry.globalState.phase = newPhase;
+      registry.globalState.lastChanged = Date.now();
+      registry.globalState.history = [
+        ...(registry.globalState.history || []).slice(-9), // keep last 10 transitions
+        { from: currentPhase, to: newPhase, at: new Date().toISOString() },
+      ];
       await fetch(REGISTRY_URL, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(registry),
       });
+      setGlobalEventPhase(newPhase); // update local admin view immediately
       fetchAdminRegistryData();
-      showToast(`Global Phase updated to: ${newPhase}`);
+      const dir = isGoingBack ? '← Reversed' : '→ Advanced';
+      showToast(`${dir} — Phase: ${PHASE_LABELS[newPhase].label}`);
     } catch (e) {
-      showToast('Error updating global phase', 'error');
+      showToast('Error updating global phase — check your connection', 'error');
     }
   };
 
@@ -2029,16 +2075,86 @@ const BugArena = ({ onAbort }) => {
     return (
       <div className="ba-fade-in" style={{ width: '100%', maxWidth: '1100px' }}>
         {/* Phase Control Block */}
-        <div style={{ background: 'rgba(0,0,0,0.4)', borderRadius: '12px', padding: '1.2rem', marginBottom: '2rem', border: '1px solid rgba(0,255,255,0.2)' }}>
-          <h3 style={{ margin: '0 0 1rem', color: '#00ffff', fontSize: '1rem', textTransform: 'uppercase', letterSpacing: '0.1em' }}>⏱️ Global Event Control</h3>
-          <div style={{ display: 'flex', gap: '0.8rem', flexWrap: 'wrap' }}>
-            <button className={`ba-neon-btn ba-btn-sm ${rawData?.globalState?.phase === 'pre_event' ? 'ba-btn-cyan' : ''}`} onClick={() => handleUpdateGlobalPhase('pre_event')}>1. Waiting Room</button>
-            <button className={`ba-neon-btn ba-btn-sm ${rawData?.globalState?.phase === 'coding' ? 'ba-btn-cyan' : ''}`} onClick={() => handleUpdateGlobalPhase('coding')}>2. Start Coding Phase</button>
-            <button className={`ba-neon-btn ba-btn-sm ${rawData?.globalState?.phase === 'exchange' ? 'ba-btn-cyan' : ''}`} onClick={() => handleUpdateGlobalPhase('exchange')}>3. Stop Coding / Exchange</button>
-            <button className={`ba-neon-btn ba-btn-sm ${rawData?.globalState?.phase === 'hunting' ? 'ba-btn-cyan' : ''}`} onClick={() => handleUpdateGlobalPhase('hunting')}>4. Start Hunting Phase</button>
-            <button className={`ba-neon-btn ba-btn-sm ${rawData?.globalState?.phase === 'post_event' ? 'ba-btn-cyan' : ''}`} onClick={() => handleUpdateGlobalPhase('post_event')}>5. End Event (Judging)</button>
-          </div>
-        </div>
+        {(() => {
+          const currentPhase = rawData?.globalState?.phase || 'pre_event';
+          const history = rawData?.globalState?.history || [];
+          const phases = ['pre_event', 'coding', 'exchange', 'hunting', 'post_event'];
+          return (
+            <div style={{ background: 'rgba(0,0,0,0.5)', borderRadius: '14px', padding: '1.4rem 1.6rem', marginBottom: '2rem', border: '1px solid rgba(0,255,255,0.25)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.2rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <div>
+                  <h3 style={{ margin: 0, color: '#00ffff', fontSize: '1rem', textTransform: 'uppercase', letterSpacing: '0.1em' }}>⏱️ Global Event Control</h3>
+                  <p style={{ margin: '0.3rem 0 0', fontSize: '0.78rem', color: '#7a7a9e' }}>
+                    Current: <strong style={{ color: '#fbbf24' }}>{PHASE_LABELS[currentPhase]?.label}</strong>
+                    {' — '}{PHASE_LABELS[currentPhase]?.desc}
+                  </p>
+                </div>
+                {history.length > 0 && (
+                  <details style={{ fontSize: '0.72rem', color: '#6b6b8a', cursor: 'pointer' }}>
+                    <summary style={{ color: '#7a7a9e' }}>Phase History ({history.length})</summary>
+                    <div style={{ marginTop: '0.4rem', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                      {history.slice().reverse().map((h, i) => (
+                        <span key={i}>{new Date(h.at).toLocaleTimeString()} — {PHASE_LABELS[h.from]?.label} → {PHASE_LABELS[h.to]?.label}</span>
+                      ))}
+                    </div>
+                  </details>
+                )}
+              </div>
+              {/* Phase Stepper */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap' }}>
+                {phases.map((p, idx) => {
+                  const isActive = currentPhase === p;
+                  const isPast = PHASE_ORDER[p] < PHASE_ORDER[currentPhase];
+                  const isFuture = PHASE_ORDER[p] > PHASE_ORDER[currentPhase];
+                  return (
+                    <>
+                      <button
+                        key={p}
+                        onClick={() => handleUpdateGlobalPhase(p)}
+                        title={isPast ? `↩ Revert to: ${PHASE_LABELS[p].label}` : PHASE_LABELS[p].desc}
+                        style={{
+                          padding: '0.55rem 0.9rem',
+                          borderRadius: '8px',
+                          border: isActive
+                            ? '2px solid #00ffff'
+                            : isPast
+                            ? '1px dashed rgba(251,191,36,0.5)'
+                            : '1px solid rgba(255,255,255,0.1)',
+                          background: isActive
+                            ? 'rgba(0,255,255,0.15)'
+                            : isPast
+                            ? 'rgba(251,191,36,0.06)'
+                            : 'rgba(255,255,255,0.04)',
+                          color: isActive ? '#00ffff' : isPast ? '#fbbf24' : '#6b6b8a',
+                          fontSize: '0.78rem',
+                          fontWeight: isActive ? 800 : 500,
+                          fontFamily: 'Space Grotesk, sans-serif',
+                          cursor: isActive ? 'default' : 'pointer',
+                          transition: 'all 0.2s',
+                          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.15rem',
+                          minWidth: '80px',
+                        }}
+                      >
+                        <span style={{ fontSize: '1rem' }}>
+                          {isActive ? '🟢' : isPast ? '↩' : '○'}
+                        </span>
+                        <span>{PHASE_LABELS[p].step}. {PHASE_LABELS[p].label.split(' ')[0]}</span>
+                        {isActive && <span style={{ fontSize: '0.65rem', opacity: 0.7 }}>ACTIVE</span>}
+                        {isPast && <span style={{ fontSize: '0.65rem', opacity: 0.7 }}>Revert</span>}
+                      </button>
+                      {idx < phases.length - 1 && (
+                        <span style={{ color: PHASE_ORDER[phases[idx+1]] <= PHASE_ORDER[currentPhase] ? '#fbbf24' : '#3a3a5a', fontSize: '1rem' }}>→</span>
+                      )}
+                    </>
+                  );
+                })}
+              </div>
+              <p style={{ margin: '0.8rem 0 0', fontSize: '0.72rem', color: '#6b6b8a' }}>
+                ⚠️ <strong style={{ color: '#fbbf24' }}>Reverting</strong> a phase will ask for confirmation. All submitted data is always preserved.
+              </p>
+            </div>
+          );
+        })()}
 
         {/* Admin Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
