@@ -385,6 +385,9 @@ const BugArena = ({ onAbort }) => {
   const [loginRegId, setLoginRegId] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
+  // ── Global Event State ──
+  const [globalEventPhase, setGlobalEventPhase] = useState('pre_event'); // pre_event | coding | exchange | hunting | post_event
+
   // ── Admin Portal State ──
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
   const [adminModalOpen, setAdminModalOpen] = useState(false);
@@ -439,6 +442,39 @@ const BugArena = ({ onAbort }) => {
       if (intervalId) clearInterval(intervalId);
     };
   }, [regPhase, paymentStatus, registrationId]);
+
+  // Poll Global Event Phase
+  useEffect(() => {
+    if (!isRegistered) return;
+    const intervalId = setInterval(async () => {
+      try {
+        const getRes = await fetch(REGISTRY_URL);
+        const registry = await getRes.json();
+        if (registry && registry.globalState && registry.globalState.phase) {
+          setGlobalEventPhase(registry.globalState.phase);
+        }
+      } catch (err) {
+        // ignore
+      }
+    }, 4000);
+    return () => clearInterval(intervalId);
+  }, [isRegistered]);
+
+  // Auto-submit code if coding phase ends
+  useEffect(() => {
+    if ((globalEventPhase === 'exchange' || globalEventPhase === 'hunting' || globalEventPhase === 'post_event') && phase === 'create' && !submittedKey && !isSubmitting && teamName) {
+      showToast('Coding phase ended! Auto-submitting your code...', 'error');
+      handleSubmitCode();
+    }
+  }, [globalEventPhase, phase, submittedKey, isSubmitting, teamName]);
+
+  // Auto-submit report if hunting phase ends
+  useEffect(() => {
+    if (globalEventPhase === 'post_event' && phase === 'hunt' && !reportSubmitted && teamName) {
+      showToast('Hunting phase ended! Auto-submitting your report...', 'error');
+      handleGenerateReport();
+    }
+  }, [globalEventPhase, phase, reportSubmitted, teamName]);
 
   // Poll lock status when locked
   useEffect(() => {
@@ -1426,7 +1462,32 @@ const BugArena = ({ onAbort }) => {
   };
 
   // ── Render phase content ──
-  const renderCreatePhase = () => (
+  const renderCreatePhase = () => {
+    if (globalEventPhase === 'pre_event') {
+      return (
+        <div className="ba-fade-in" style={{ textAlign: 'center', padding: '4rem 2rem' }}>
+          <h2 style={{ color: '#00ffff', fontSize: '2.5rem', marginBottom: '1rem', fontFamily: 'Space Grotesk, sans-serif' }}>Waiting Room</h2>
+          <p style={{ color: '#a0a0c5', fontSize: '1.1rem', maxWidth: '500px', margin: '0 auto', lineHeight: 1.6 }}>
+            The event has not started yet. Please wait for the admin to initiate the Coding Phase.
+          </p>
+          <div style={{ fontSize: '4rem', marginTop: '2.5rem', animation: 'ba-pulse-warn 2s infinite' }}>⏳</div>
+        </div>
+      );
+    }
+    
+    if (globalEventPhase !== 'coding' && !submittedKey) {
+      return (
+        <div className="ba-fade-in" style={{ textAlign: 'center', padding: '4rem 2rem' }}>
+          <h2 style={{ color: '#ff5f56', fontSize: '2.5rem', marginBottom: '1rem', fontFamily: 'Space Grotesk, sans-serif' }}>Coding Phase Ended</h2>
+          <p style={{ color: '#a0a0c5', fontSize: '1.1rem', maxWidth: '500px', margin: '0 auto', lineHeight: 1.6 }}>
+            The coding phase is over. Your code has been automatically submitted. Please proceed to the Exchange Phase.
+          </p>
+          <button className="ba-neon-btn ba-btn-cyan" onClick={() => setPhase('exchange')} style={{ marginTop: '1.5rem' }}>Go to Exchange Portal</button>
+        </div>
+      );
+    }
+
+    return (
     <div className="ba-fade-in">
       <div className="ba-section-header">
         <div className="ba-section-line" />
@@ -1580,9 +1641,35 @@ const BugArena = ({ onAbort }) => {
         </>
       )}
     </div>
-  );
+    );
+  };
 
-  const renderExchangePhase = () => (
+  const renderExchangePhase = () => {
+    if (globalEventPhase === 'coding' || globalEventPhase === 'pre_event') {
+      return (
+        <div className="ba-fade-in" style={{ textAlign: 'center', padding: '4rem 2rem' }}>
+          <h2 style={{ color: '#00ffff', fontSize: '2.5rem', marginBottom: '1rem', fontFamily: 'Space Grotesk, sans-serif' }}>Not Ready Yet</h2>
+          <p style={{ color: '#a0a0c5', fontSize: '1.1rem', maxWidth: '500px', margin: '0 auto', lineHeight: 1.6 }}>
+            You cannot exchange codes until the Coding Phase has officially ended.
+          </p>
+          <button className="ba-neon-btn ba-btn-cyan" onClick={() => setPhase('create')} style={{ marginTop: '1.5rem' }}>Back to Create</button>
+        </div>
+      );
+    }
+
+    if (globalEventPhase === 'exchange') {
+      return (
+        <div className="ba-fade-in" style={{ textAlign: 'center', padding: '4rem 2rem' }}>
+          <h2 style={{ color: '#fbbf24', fontSize: '2.5rem', marginBottom: '1rem', fontFamily: 'Space Grotesk, sans-serif' }}>Code Exchange Portal</h2>
+          <p style={{ color: '#a0a0c5', fontSize: '1.1rem', maxWidth: '500px', margin: '0 auto', lineHeight: 1.6 }}>
+            The admin is currently collecting and distributing the codes. Please wait until the Hunting Phase officially begins.
+          </p>
+          <div style={{ fontSize: '4rem', marginTop: '2.5rem', animation: 'ba-pulse-warn 2s infinite' }}>🤝</div>
+        </div>
+      );
+    }
+
+    return (
     <div className="ba-fade-in">
       <div className="ba-section-header">
         <div className="ba-section-line" />
@@ -1647,9 +1734,23 @@ const BugArena = ({ onAbort }) => {
         </div>
       </div>
     </div>
-  );
+    );
+  };
 
-  const renderHuntPhase = () => (
+  const renderHuntPhase = () => {
+    if (globalEventPhase === 'post_event') {
+      return (
+        <div className="ba-fade-in" style={{ textAlign: 'center', padding: '4rem 2rem' }}>
+          <h2 style={{ color: '#ff5f56', fontSize: '2.5rem', marginBottom: '1rem', fontFamily: 'Space Grotesk, sans-serif' }}>Hunting Phase Ended</h2>
+          <p style={{ color: '#a0a0c5', fontSize: '1.1rem', maxWidth: '500px', margin: '0 auto', lineHeight: 1.6 }}>
+            The event has concluded. Your bug report has been automatically submitted.
+          </p>
+          <div style={{ fontSize: '4rem', marginTop: '2.5rem' }}>🏁</div>
+        </div>
+      );
+    }
+
+    return (
     <div className="ba-fade-in">
       <div className="ba-section-header">
         <div className="ba-section-line" />
@@ -1859,14 +1960,33 @@ const BugArena = ({ onAbort }) => {
         </>
       )}
     </div>
-  );
+    );
+  };
 
   // ── Render Admin Dashboard ──
+  const handleUpdateGlobalPhase = async (newPhase) => {
+    try {
+      const getRes = await fetch(REGISTRY_URL);
+      const registry = await getRes.json();
+      if (!registry.globalState) registry.globalState = {};
+      registry.globalState.phase = newPhase;
+      await fetch(REGISTRY_URL, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(registry),
+      });
+      fetchAdminRegistryData();
+      showToast(`Global Phase updated to: ${newPhase}`);
+    } catch (e) {
+      showToast('Error updating global phase', 'error');
+    }
+  };
+
   const renderAdminDashboard = () => {
     const rawData = adminRegistryData || {};
     // Extract registered teams (keys that are 6-chars)
     const teamEntries = Object.entries(rawData)
-      .filter(([k, v]) => k !== 'reports' && v && typeof v === 'object' && v.code)
+      .filter(([k, v]) => k !== 'reports' && k !== 'globalState' && v && typeof v === 'object' && v.code)
       .map(([k, v]) => ({ key: k, ...v }));
 
     const reportsList = rawData.reports || [];
@@ -1877,6 +1997,18 @@ const BugArena = ({ onAbort }) => {
 
     return (
       <div className="ba-fade-in" style={{ width: '100%', maxWidth: '1100px' }}>
+        {/* Phase Control Block */}
+        <div style={{ background: 'rgba(0,0,0,0.4)', borderRadius: '12px', padding: '1.2rem', marginBottom: '2rem', border: '1px solid rgba(0,255,255,0.2)' }}>
+          <h3 style={{ margin: '0 0 1rem', color: '#00ffff', fontSize: '1rem', textTransform: 'uppercase', letterSpacing: '0.1em' }}>⏱️ Global Event Control</h3>
+          <div style={{ display: 'flex', gap: '0.8rem', flexWrap: 'wrap' }}>
+            <button className={`ba-neon-btn ba-btn-sm ${rawData?.globalState?.phase === 'pre_event' ? 'ba-btn-cyan' : ''}`} onClick={() => handleUpdateGlobalPhase('pre_event')}>1. Waiting Room</button>
+            <button className={`ba-neon-btn ba-btn-sm ${rawData?.globalState?.phase === 'coding' ? 'ba-btn-cyan' : ''}`} onClick={() => handleUpdateGlobalPhase('coding')}>2. Start Coding Phase</button>
+            <button className={`ba-neon-btn ba-btn-sm ${rawData?.globalState?.phase === 'exchange' ? 'ba-btn-cyan' : ''}`} onClick={() => handleUpdateGlobalPhase('exchange')}>3. Stop Coding / Exchange</button>
+            <button className={`ba-neon-btn ba-btn-sm ${rawData?.globalState?.phase === 'hunting' ? 'ba-btn-cyan' : ''}`} onClick={() => handleUpdateGlobalPhase('hunting')}>4. Start Hunting Phase</button>
+            <button className={`ba-neon-btn ba-btn-sm ${rawData?.globalState?.phase === 'post_event' ? 'ba-btn-cyan' : ''}`} onClick={() => handleUpdateGlobalPhase('post_event')}>5. End Event (Judging)</button>
+          </div>
+        </div>
+
         {/* Admin Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
           <div>
