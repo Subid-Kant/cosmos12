@@ -68,27 +68,27 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // ─── Rate Limiting ─────────────────────────────────────────────────────────────
-// General API: 200 requests per 15 minutes per IP (handles 100 students easily)
+// General API: Extremely high limit to accommodate 100+ students on the same College Wi-Fi IP
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 200,
+  max: 10000, // 10,000 requests per 15 min per IP
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests. Please wait a few minutes and try again.' },
 });
 app.use('/api/', generalLimiter);
 
-// Stricter limiter for registration (prevents spam — max 5 attempts per 15 min per IP)
+// Registration limit (increased to allow many registrations from same IP)
 const registrationLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 5,
-  message: { error: 'Too many registration attempts. Please try again in 15 minutes.' },
+  max: 500,
+  message: { error: 'Too many registration attempts from this IP. Please try again in 15 minutes.' },
 });
 
-// Stricter limiter for cheat reports (max 30 per 15 min — 3 warnings × 10 re-entries)
+// Cheat reports limiter
 const cheatLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 30,
+  max: 1000,
   message: { error: 'Too many reports.' },
 });
 
@@ -181,10 +181,10 @@ const getRegistryDoc = async () => {
 };
 
 // ─── Admin Login (credentials stored only in server environment) ────────────
-// A strict rate limiter: max 5 attempts per 15 minutes per IP
+// A strict rate limiter: max 50 attempts per 15 minutes per IP
 const adminLoginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 5,
+  max: 50,
   message: { error: 'Too many login attempts. Try again in 15 minutes.' },
 });
 
