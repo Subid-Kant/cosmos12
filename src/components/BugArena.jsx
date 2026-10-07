@@ -658,14 +658,24 @@ const BugArena = ({ onAbort }) => {
     setIsLoadingAdminData(false);
   };
 
-  // Auto-refresh cheat reports every 5s when admin is logged in (so badge updates)
+  // Silent auto-refresh for all admin data every 5s (so badges and lists update instantly)
   useEffect(() => {
     if (!isAdminLoggedIn) return;
     const intervalId = setInterval(async () => {
       try {
-        const res = await fetch(`${SERVER_BASE}/api/cheat-reports`);
-        const data = await res.json();
-        if (Array.isArray(data)) setAdminCheatReports(data);
+        const [regRes, statsRes, cheatRes] = await Promise.all([
+          fetch(`${SERVER_BASE}/api/registrations`),
+          fetch(`${SERVER_BASE}/api/registrations/stats`),
+          fetch(`${SERVER_BASE}/api/cheat-reports`),
+        ]);
+        const regData = await regRes.json();
+        if (Array.isArray(regData)) setAdminRegistrations(regData);
+        
+        const statsData = await statsRes.json();
+        setAdminRegStats(statsData);
+        
+        const cheatData = await cheatRes.json();
+        if (Array.isArray(cheatData)) setAdminCheatReports(cheatData);
       } catch (e) { /* silent */ }
     }, 5000);
     return () => clearInterval(intervalId);
@@ -2043,13 +2053,8 @@ const BugArena = ({ onAbort }) => {
     if (isSamePhase) return; // no-op
 
     if (isGoingBack) {
-      const warning = PHASE_REVERT_WARNINGS[newPhase];
-      const confirmed = window.confirm(
-        `⚠️ REVERSE PHASE?\n\n` +
-        `You are going BACK from "${PHASE_LABELS[currentPhase].label}" → "${PHASE_LABELS[newPhase].label}".\n\n` +
-        `${warning}\n\nClick OK to confirm.`
-      );
-      if (!confirmed) return;
+      showToast('❌ Reverting to previous phases is disabled to ensure data consistency.', 'error');
+      return;
     }
 
     try {
@@ -2167,7 +2172,7 @@ const BugArena = ({ onAbort }) => {
                 })}
               </div>
               <p style={{ margin: '0.8rem 0 0', fontSize: '0.72rem', color: '#6b6b8a' }}>
-                ⚠️ <strong style={{ color: '#fbbf24' }}>Reverting</strong> a phase will ask for confirmation. All submitted data is always preserved.
+                ℹ️ Phases must be advanced sequentially. Reverting is disabled.
               </p>
             </div>
           );
