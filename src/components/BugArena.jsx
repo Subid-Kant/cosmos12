@@ -436,7 +436,7 @@ const BugArena = ({ onAbort }) => {
         } catch (e) {
           // ignore network errors
         }
-      }, 8000); // 8s interval to avoid hammering the server
+      }, 15000); // 15s interval to avoid hammering the server
     }
     return () => {
       if (intervalId) clearInterval(intervalId);
@@ -456,7 +456,7 @@ const BugArena = ({ onAbort }) => {
       } catch (err) {
         // ignore
       }
-    }, 8000);
+    }, 20000); // 20s interval to prevent massive server lag when 100+ students are polling
     return () => clearInterval(intervalId);
   }, [isRegistered]);
 
@@ -517,7 +517,7 @@ const BugArena = ({ onAbort }) => {
       } catch (e) {
         // ignore
       }
-    }, 5000); // 5s is enough — admin action is not instant anyway
+    }, 10000); // 10s is enough — admin action is not instant anyway, and it saves server load
     return () => clearInterval(intervalId);
   }, [isLocked, teamName]);
 
@@ -677,7 +677,7 @@ const BugArena = ({ onAbort }) => {
         const cheatData = await cheatRes.json();
         if (Array.isArray(cheatData)) setAdminCheatReports(cheatData);
       } catch (e) { /* silent */ }
-    }, 5000);
+    }, 15000); // 15s interval for admin background sync
     return () => clearInterval(intervalId);
   }, [isAdminLoggedIn]);
 
