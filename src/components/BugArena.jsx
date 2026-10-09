@@ -4,8 +4,12 @@ import './BugArena.css';
 // Local MongoDB Backend for sharing 6-character keys & admin syncing
 // Ensure you start the backend server in 'server/' folder using 'node server.js'
 // For production, the lead will set VITE_API_URL in the .env file
-const REGISTRY_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/registry';
-const SERVER_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api/registry').replace('/api/registry', '');
+const getBaseUrl = () => {
+  if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL.replace('/api/registry', '');
+  return `http://${window.location.hostname}:5000`;
+};
+const SERVER_BASE = getBaseUrl();
+const REGISTRY_URL = `${SERVER_BASE}/api/registry`;
 
 // Helper to generate a 6-character uppercase key (e.g. "2BF45V")
 const generate6CharKey = () => {
