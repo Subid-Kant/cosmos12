@@ -362,6 +362,69 @@ const CodeEditor = ({ code, onChange, language, readOnly = false, teamInfo = nul
   );
 };
 
+// ─── Admin Login Modal ──────────────────────────────────────────────────────
+const AdminLoginModal = ({ onClose, onLogin }) => {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    onLogin(username, password);
+  };
+
+  return (
+    <div className="ba-admin-overlay" onClick={onClose}>
+      <div className="ba-admin-card" onClick={(e) => e.stopPropagation()}>
+        <div className="ba-admin-header">
+          <div className="ba-admin-header-title">🔐 Admin Authentication</div>
+          <button
+            onClick={onClose}
+            style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '1.2rem', cursor: 'pointer' }}
+          >
+            ✕
+          </button>
+        </div>
+        <form className="ba-setup-body" onSubmit={handleSubmit}>
+          <div className="ba-field-group">
+            <label className="ba-field-label" style={{ color: '#fbbf24' }}>
+              <span>👤</span> Admin Username
+            </label>
+            <input
+              type="text"
+              className="ba-field-input"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="Username..."
+              style={{ borderColor: 'rgba(251, 191, 36, 0.3)' }}
+              autoFocus
+            />
+          </div>
+          <div className="ba-field-group">
+            <label className="ba-field-label" style={{ color: '#fbbf24' }}>
+              <span>🔑</span> Password
+            </label>
+            <input
+              type="password"
+              className="ba-field-input"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password..."
+              style={{ borderColor: 'rgba(251, 191, 36, 0.3)' }}
+            />
+          </div>
+          <button
+            type="submit"
+            className="ba-neon-btn ba-btn-cyan"
+            style={{ width: '100%', marginTop: '1rem', background: 'rgba(251, 191, 36, 0.2)', borderColor: 'rgba(251, 191, 36, 0.6)', color: '#fbbf24' }}
+          >
+            Authenticate 🚀
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+};
+
 // ─── Main Bug Arena Component ───────────────────────────────────────────────
 const BugArena = ({ onAbort }) => {
   const [phase, setPhase] = useState('create'); // 'create' | 'exchange' | 'hunt' | 'admin'
@@ -413,8 +476,6 @@ const BugArena = ({ onAbort }) => {
   // ── Admin Portal State ──
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
   const [adminModalOpen, setAdminModalOpen] = useState(false);
-  const [adminUsernameInput, setAdminUsernameInput] = useState('');
-  const [adminPasswordInput, setAdminPasswordInput] = useState('');
   const [adminActiveTab, setAdminActiveTab] = useState('registrations'); // 'registrations' | 'teams' | 'matcher' | 'compare' | 'proctoring'
   const [adminRegistryData, setAdminRegistryData] = useState(null);
   const [adminRegistrations, setAdminRegistrations] = useState([]);
@@ -766,15 +827,14 @@ const BugArena = ({ onAbort }) => {
     }
   };
 
-  const handleAdminLogin = async (e) => {
-    e.preventDefault();
+  const handleAdminLogin = async (username, password) => {
     try {
       const res = await fetch(`${SERVER_BASE}/api/admin/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          username: adminUsernameInput.trim(),
-          password: adminPasswordInput,
+          username: username.trim(),
+          password: password,
         }),
       });
       if (res.ok) {
@@ -2951,58 +3011,10 @@ const BugArena = ({ onAbort }) => {
 
       {/* Admin Login Modal */}
       {adminModalOpen && (
-        <div className="ba-admin-overlay" onClick={() => setAdminModalOpen(false)}>
-          <div className="ba-admin-card" onClick={(e) => e.stopPropagation()}>
-            <div className="ba-admin-header">
-              <div className="ba-admin-header-title">🔐 Admin Authentication</div>
-              <button
-                onClick={() => setAdminModalOpen(false)}
-                style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '1.2rem', cursor: 'pointer' }}
-              >
-                ✕
-              </button>
-            </div>
-            <form className="ba-setup-body" onSubmit={handleAdminLogin}>
-              <div className="ba-field-group">
-                <label className="ba-field-label" style={{ color: '#fbbf24' }}>
-                  <span>👤</span> Admin Username
-                </label>
-                <input
-                  type="text"
-                  className="ba-field-input"
-                  value={adminUsernameInput}
-                  onChange={(e) => setAdminUsernameInput(e.target.value)}
-                  placeholder="Username..."
-                  style={{ borderColor: 'rgba(251, 191, 36, 0.3)' }}
-                  autoFocus
-                />
-              </div>
-
-              <div className="ba-field-group">
-                <label className="ba-field-label" style={{ color: '#fbbf24' }}>
-                  <span>🔑</span> Password
-                </label>
-                <input
-                  type="password"
-                  className="ba-field-input"
-                  value={adminPasswordInput}
-                  onChange={(e) => setAdminPasswordInput(e.target.value)}
-                  placeholder="Password..."
-                  style={{ borderColor: 'rgba(251, 191, 36, 0.3)' }}
-                />
-              </div>
-
-              <button
-                type="submit"
-                className="ba-neon-btn"
-                style={{ background: 'linear-gradient(135deg, rgba(251, 191, 36, 0.2), rgba(217, 119, 6, 0.15))', borderColor: 'rgba(251, 191, 36, 0.5)', color: '#fbbf24', alignSelf: 'center', marginTop: '0.5rem' }}
-              >
-                <span className="ba-btn-icon">🔓</span>
-                Unlock Admin Portal
-              </button>
-            </form>
-          </div>
-        </div>
+        <AdminLoginModal 
+          onClose={() => setAdminModalOpen(false)} 
+          onLogin={handleAdminLogin} 
+        />
       )}
 
       <div className="ba-content">
