@@ -233,7 +233,7 @@ const Toast = ({ message, type = 'success', onDone }) => {
 };
 
 // ─── Code Editor Component ──────────────────────────────────────────────────
-const CodeEditor = ({ code, onChange, language, readOnly = false, teamInfo = null }) => {
+const CodeEditor = React.memo(({ code, onChange, language, readOnly = false, teamInfo = null }) => {
   const [localCode, setLocalCode] = useState(code || '');
   const textareaRef = useRef(null);
   const highlightRef = useRef(null);
@@ -257,6 +257,16 @@ const CodeEditor = ({ code, onChange, language, readOnly = false, teamInfo = nul
 
   const lines = localCode ? localCode.split('\n') : [''];
   const lineCount = lines.length;
+
+  const highlightedHtml = React.useMemo(() => {
+    return highlightCode(localCode, language) + '\n';
+  }, [localCode, language]);
+
+  const lineNumbers = React.useMemo(() => {
+    return Array.from({ length: lineCount }, (_, i) => (
+      <span key={i} className="ba-line-num">{i + 1}</span>
+    ));
+  }, [lineCount]);
 
   const handleScroll = () => {
     if (textareaRef.current && highlightRef.current) {
@@ -324,15 +334,13 @@ const CodeEditor = ({ code, onChange, language, readOnly = false, teamInfo = nul
 
       <div className="ba-editor-body">
         <div className="ba-line-numbers" ref={lineNumbersRef}>
-          {Array.from({ length: lineCount }, (_, i) => (
-            <span key={i} className="ba-line-num">{i + 1}</span>
-          ))}
+          {lineNumbers}
         </div>
         <div className="ba-code-container">
           <pre
             ref={highlightRef}
             className="ba-code-highlight"
-            dangerouslySetInnerHTML={{ __html: React.useMemo(() => highlightCode(localCode, language) + '\n', [localCode, language]) }}
+            dangerouslySetInnerHTML={{ __html: highlightedHtml }}
           />
           <textarea
             ref={textareaRef}
@@ -360,7 +368,7 @@ const CodeEditor = ({ code, onChange, language, readOnly = false, teamInfo = nul
       </div>
     </div>
   );
-};
+});
 
 // ─── Admin Login Modal ──────────────────────────────────────────────────────
 const AdminLoginModal = ({ onClose, onLogin }) => {
