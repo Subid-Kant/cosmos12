@@ -6,7 +6,8 @@ import './BugArena.css';
 // For production, the lead will set VITE_API_URL in the .env file
 const getBaseUrl = () => {
   if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL.replace('/api/registry', '');
-  return `http://${window.location.hostname}:5000`;
+  // Default to the live Render server if .env is missing (so teammates can test without setup)
+  return 'https://bug-arena-backend.onrender.com';
 };
 const SERVER_BASE = getBaseUrl();
 const REGISTRY_URL = `${SERVER_BASE}/api/registry`;
