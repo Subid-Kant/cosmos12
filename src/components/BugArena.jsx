@@ -2045,14 +2045,14 @@ const BugArena = ({ onAbort }) => {
     post_event: 'Event will be marked as ended again. All submissions are SAFE.',
   };
 
-  const handleUpdateGlobalPhase = async (newPhase) => {
+  const handleUpdateGlobalPhase = async (newPhase, forceOverride = false) => {
     const currentPhase = adminRegistryData?.globalState?.phase || 'pre_event';
     const isGoingBack = PHASE_ORDER[newPhase] < PHASE_ORDER[currentPhase];
     const isSamePhase = newPhase === currentPhase;
 
     if (isSamePhase) return; // no-op
 
-    if (isGoingBack) {
+    if (isGoingBack && !forceOverride) {
       showToast('❌ Reverting to previous phases is disabled to ensure data consistency.', 'error');
       return;
     }
@@ -2111,16 +2111,31 @@ const BugArena = ({ onAbort }) => {
                     {' — '}{PHASE_LABELS[currentPhase]?.desc}
                   </p>
                 </div>
-                {history.length > 0 && (
-                  <details style={{ fontSize: '0.72rem', color: '#6b6b8a', cursor: 'pointer' }}>
-                    <summary style={{ color: '#7a7a9e' }}>Phase History ({history.length})</summary>
-                    <div style={{ marginTop: '0.4rem', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                      {history.slice().reverse().map((h, i) => (
-                        <span key={i}>{new Date(h.at).toLocaleTimeString()} — {PHASE_LABELS[h.from]?.label} → {PHASE_LABELS[h.to]?.label}</span>
-                      ))}
-                    </div>
-                  </details>
-                )}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.5rem' }}>
+                  {history.length > 0 && (
+                    <details style={{ fontSize: '0.72rem', color: '#6b6b8a', cursor: 'pointer' }}>
+                      <summary style={{ color: '#7a7a9e' }}>Phase History ({history.length})</summary>
+                      <div style={{ marginTop: '0.4rem', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                        {history.slice().reverse().map((h, i) => (
+                          <span key={i}>{new Date(h.at).toLocaleTimeString()} — {PHASE_LABELS[h.from]?.label} → {PHASE_LABELS[h.to]?.label}</span>
+                        ))}
+                      </div>
+                    </details>
+                  )}
+                  {currentPhase !== 'pre_event' && (
+                    <button 
+                      onClick={() => {
+                        if(window.prompt('Type RESET to force the event back to Waiting Room. This is for dev testing only.') === 'RESET') {
+                          handleUpdateGlobalPhase('pre_event', true);
+                        }
+                      }}
+                      style={{ fontSize: '0.65rem', background: 'rgba(255, 95, 86, 0.1)', border: '1px solid rgba(255, 95, 86, 0.5)', color: '#ff5f56', padding: '3px 8px', borderRadius: '4px', cursor: 'pointer' }}
+                      title="Force reset phase for testing purposes"
+                    >
+                      ⚠️ Dev Reset to Waiting Room
+                    </button>
+                  )}
+                </div>
               </div>
               {/* Phase Stepper */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap' }}>
