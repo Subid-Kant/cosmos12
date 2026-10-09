@@ -233,11 +233,28 @@ const Toast = ({ message, type = 'success', onDone }) => {
 
 // ─── Code Editor Component ──────────────────────────────────────────────────
 const CodeEditor = ({ code, onChange, language, readOnly = false, teamInfo = null }) => {
+  const [localCode, setLocalCode] = useState(code || '');
   const textareaRef = useRef(null);
   const highlightRef = useRef(null);
   const lineNumbersRef = useRef(null);
 
-  const lines = code ? code.split('\n') : [''];
+  // If the parent resets the code (e.g. wiped), or it's a read-only loaded code, sync it to local
+  useEffect(() => {
+    if (readOnly || code === '') {
+      setLocalCode(code || '');
+    }
+  }, [code, readOnly]);
+
+  // Debounce sending code back to parent to avoid massive re-renders
+  useEffect(() => {
+    if (readOnly) return;
+    const handler = setTimeout(() => {
+      onChange(localCode);
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [localCode, onChange, readOnly]);
+
+  const lines = localCode ? localCode.split('\n') : [''];
   const lineCount = lines.length;
 
   const handleScroll = () => {
@@ -252,7 +269,7 @@ const CodeEditor = ({ code, onChange, language, readOnly = false, teamInfo = nul
 
   const handleInput = (e) => {
     if (!readOnly) {
-      onChange(e.target.value);
+      setLocalCode(e.target.value);
     }
   };
 
@@ -262,8 +279,8 @@ const CodeEditor = ({ code, onChange, language, readOnly = false, teamInfo = nul
       if (!readOnly) {
         const start = e.target.selectionStart;
         const end = e.target.selectionEnd;
-        const newCode = code.substring(0, start) + '  ' + code.substring(end);
-        onChange(newCode);
+        const newCode = localCode.substring(0, start) + '  ' + localCode.substring(end);
+        setLocalCode(newCode);
         requestAnimationFrame(() => {
           e.target.selectionStart = e.target.selectionEnd = start + 2;
         });
@@ -314,12 +331,12 @@ const CodeEditor = ({ code, onChange, language, readOnly = false, teamInfo = nul
           <pre
             ref={highlightRef}
             className="ba-code-highlight"
-            dangerouslySetInnerHTML={{ __html: React.useMemo(() => highlightCode(code, language) + '\n', [code, language]) }}
+            dangerouslySetInnerHTML={{ __html: React.useMemo(() => highlightCode(localCode, language) + '\n', [localCode, language]) }}
           />
           <textarea
             ref={textareaRef}
             className={`ba-code-textarea ${readOnly ? 'ba-code-readonly' : ''}`}
-            value={code}
+            value={localCode}
             onChange={handleInput}
             onScroll={handleScroll}
             onKeyDown={handleTab}
@@ -336,7 +353,7 @@ const CodeEditor = ({ code, onChange, language, readOnly = false, teamInfo = nul
       <div className="ba-editor-footer">
         <div className="ba-editor-info">
           <span>📄 {lineCount} lines</span>
-          <span>🔤 {code.length} chars</span>
+          <span>🔤 {localCode.length} chars</span>
           <span>💻 {langObj.name}</span>
         </div>
       </div>
