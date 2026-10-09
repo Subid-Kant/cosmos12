@@ -119,7 +119,7 @@ const highlightCode = (code, language) => {
 };
 
 // ─── Neon Particle Background ───────────────────────────────────────────────
-const NeonParticles = () => {
+const NeonParticles = React.memo(() => {
   const canvasRef = useRef(null);
   const animRef = useRef(null);
   const particlesRef = useRef([]);
@@ -214,7 +214,7 @@ const NeonParticles = () => {
       }}
     />
   );
-};
+});
 
 // ─── Toast Component ────────────────────────────────────────────────────────
 const Toast = ({ message, type = 'success', onDone }) => {
@@ -314,7 +314,7 @@ const CodeEditor = ({ code, onChange, language, readOnly = false, teamInfo = nul
           <pre
             ref={highlightRef}
             className="ba-code-highlight"
-            dangerouslySetInnerHTML={{ __html: highlightCode(code, language) + '\n' }}
+            dangerouslySetInnerHTML={{ __html: React.useMemo(() => highlightCode(code, language) + '\n', [code, language]) }}
           />
           <textarea
             ref={textareaRef}
@@ -689,11 +689,16 @@ const BugArena = ({ onAbort }) => {
     if (!isAdminLoggedIn) return;
     const intervalId = setInterval(async () => {
       try {
-        const [regRes, statsRes, cheatRes] = await Promise.all([
+        const [res, regRes, statsRes, cheatRes] = await Promise.all([
+          fetch(REGISTRY_URL),
           fetch(`${SERVER_BASE}/api/registrations`),
           fetch(`${SERVER_BASE}/api/registrations/stats`),
           fetch(`${SERVER_BASE}/api/cheat-reports`),
         ]);
+        
+        const data = await res.json();
+        if (data) setAdminRegistryData(data);
+
         const regData = await regRes.json();
         if (Array.isArray(regData)) setAdminRegistrations(regData);
         
@@ -703,7 +708,7 @@ const BugArena = ({ onAbort }) => {
         const cheatData = await cheatRes.json();
         if (Array.isArray(cheatData)) setAdminCheatReports(cheatData);
       } catch (e) { /* silent */ }
-    }, 15000); // 15s interval for admin background sync
+    }, 5000); // 5s interval for admin background sync (one admin won't lag server)
     return () => clearInterval(intervalId);
   }, [isAdminLoggedIn]);
 
@@ -2148,19 +2153,39 @@ const BugArena = ({ onAbort }) => {
                       </div>
                     </details>
                   )}
-                  {currentPhase !== 'pre_event' && (
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
                     <button 
-                      onClick={() => {
-                        if(window.prompt('Type RESET to force the event back to Waiting Room. This is for dev testing only.') === 'RESET') {
-                          handleUpdateGlobalPhase('pre_event', true);
+                      onClick={async () => {
+                        if(window.prompt('Type WIPE to delete all submitted codes & bug reports from the database. (Registrations & Cheat history remain)') === 'WIPE') {
+                          try {
+                            const newReg = { globalState: { phase: 'pre_event', history: [], lastChanged: Date.now() }, reports: [] };
+                            await fetch(REGISTRY_URL, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(newReg) });
+                            setGlobalEventPhase('pre_event');
+                            fetchAdminRegistryData();
+                            showToast('All codes wiped and event reset!', 'success');
+                          } catch (e) {
+                            showToast('Wipe failed', 'error');
+                          }
                         }
                       }}
-                      style={{ fontSize: '0.65rem', background: 'rgba(255, 95, 86, 0.1)', border: '1px solid rgba(255, 95, 86, 0.5)', color: '#ff5f56', padding: '3px 8px', borderRadius: '4px', cursor: 'pointer' }}
-                      title="Force reset phase for testing purposes"
+                      style={{ fontSize: '0.65rem', background: 'rgba(251, 191, 36, 0.1)', border: '1px solid rgba(251, 191, 36, 0.5)', color: '#fbbf24', padding: '3px 8px', borderRadius: '4px', cursor: 'pointer' }}
                     >
-                      ⚠️ Dev Reset to Waiting Room
+                      🧹 Wipe Test Codes
                     </button>
-                  )}
+                    {currentPhase !== 'pre_event' && (
+                      <button 
+                        onClick={() => {
+                          if(window.prompt('Type RESET to force the event back to Waiting Room. This is for dev testing only.') === 'RESET') {
+                            handleUpdateGlobalPhase('pre_event', true);
+                          }
+                        }}
+                        style={{ fontSize: '0.65rem', background: 'rgba(255, 95, 86, 0.1)', border: '1px solid rgba(255, 95, 86, 0.5)', color: '#ff5f56', padding: '3px 8px', borderRadius: '4px', cursor: 'pointer' }}
+                        title="Force reset phase for testing purposes"
+                      >
+                        ⚠️ Dev Reset to Waiting Room
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
               {/* Phase Stepper */}
