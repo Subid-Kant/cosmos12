@@ -509,10 +509,10 @@ const BugArena = ({ onAbort }) => {
         const data = await res.json();
         // ONLY unlock if admin explicitly approved — never auto-unlock on missing record
         if (data.reentryApproved === true) {
-          setIsLocked(false);
-          setCheatWarnings(0);
-          setReentryRequested(false);
-          showToast('Admin approved your re-entry. Play fair!', 'success');
+           setIsLocked(false);
+           setCheatWarnings(0);
+           setReentryRequested(false);
+           showToast('Admin approved your re-entry. Play fair!', 'success');
         }
       } catch (e) {
         // ignore
@@ -520,6 +520,28 @@ const BugArena = ({ onAbort }) => {
     }, 10000); // 10s is enough — admin action is not instant anyway, and it saves server load
     return () => clearInterval(intervalId);
   }, [isLocked, teamName]);
+
+  // INITIAL LOAD CHECK: Prevent bypassing lock by refreshing the page
+  useEffect(() => {
+    if (isSetup && teamName && !isAdminLoggedIn) {
+      const checkInitialLock = async () => {
+        try {
+          const res = await fetch(`${SERVER_BASE}/api/cheat-reports/lock-status/${encodeURIComponent(teamName)}`);
+          if (res.ok) {
+             const data = await res.json();
+             if (data.locked === true && data.reentryApproved !== true) {
+               setIsLocked(true);
+               setCheatWarnings(3);
+               if (data._id) setActiveCheatReportId(data._id);
+               if (data.reentryRequested) setReentryRequested(true);
+             }
+          }
+        } catch (e) { /* ignore */ }
+      };
+      checkInitialLock();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSetup, teamName, isAdminLoggedIn]);
 
   useEffect(() => {
     const handleKeyCombo = (e) => {
@@ -2772,7 +2794,7 @@ const BugArena = ({ onAbort }) => {
                       </div>
 
                       {/* Re-entry Request Banner */}
-                      {report.reentryRequested && !report.locked === false && (
+                      {report.reentryRequested && report.locked && (
                         <div style={{ background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.4)', borderRadius: '10px', padding: '0.9rem 1.2rem', marginBottom: '0.8rem', animation: 'ba-pulse-warn 2s infinite' }}>
                           <div style={{ fontSize: '0.85rem', color: '#fbbf24', fontWeight: 800, marginBottom: '0.2rem', fontFamily: 'Space Grotesk, sans-serif', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                             🔔 Re-entry Requested
