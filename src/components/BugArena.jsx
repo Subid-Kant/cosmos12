@@ -2212,7 +2212,7 @@ const BugArena = ({ onAbort }) => {
     const statusBg = (s) => s === 'verified' ? 'rgba(74,222,128,0.1)' : s === 'rejected' ? 'rgba(255,95,86,0.1)' : 'rgba(251,191,36,0.1)';
 
     return (
-      <div className="ba-fade-in" style={{ width: '100%', maxWidth: '1100px' }}>
+      <div className="ba-fade-in" style={{ width: '100%', maxWidth: '1400px' }}>
         {/* Phase Control Block */}
         {(() => {
           const currentPhase = rawData?.globalState?.phase || 'pre_event';
