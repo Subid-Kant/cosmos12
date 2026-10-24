@@ -1854,10 +1854,13 @@ const BugArena = ({ onAbort }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(reportPayload),
       });
-      if (!response.ok) throw new Error('Report save failed');
+      if (!response.ok) {
+        const failure = await response.json().catch(() => ({}));
+        throw new Error(failure.error || 'Report save failed');
+      }
     } catch (e) {
       console.warn('Cloud report sync error:', e);
-      showToast('Could not save your bug report. Please try again.', 'error');
+      showToast(e.message || 'Could not save your bug report. Please try again.', 'error');
       return;
     }
 
@@ -3338,7 +3341,11 @@ const BugArena = ({ onAbort }) => {
     // Only retain the newest version of each team's report for each exchanged
     // code. Legacy duplicate entries are also collapsed here defensively.
     const latestReportsBySlot = new Map();
-    (Array.isArray(rawData.reports) ? rawData.reports : []).forEach(report => {
+    const storedReports = [
+      ...(Array.isArray(rawData.reports) ? rawData.reports : []),
+      ...Object.values(rawData.reportSlots || {}),
+    ];
+    storedReports.filter(Boolean).forEach(report => {
       const reportSlot = report.reportSlot || `${report.reviewerRegistrationId || String(report.reviewer || '').trim().toLowerCase()}::${report.key || 'N/A'}::${String(report.language || '').toLowerCase()}`;
       const previous = latestReportsBySlot.get(reportSlot);
       if (!previous || Number(report.updatedAt || report.timestamp || 0) >= Number(previous.updatedAt || previous.timestamp || 0)) {

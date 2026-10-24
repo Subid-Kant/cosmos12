@@ -272,6 +272,11 @@ app.patch('/api/event-phase', requireAdmin, async (req, res) => {
         const slot = report.reportSlot || `${report.reviewerRegistrationId || report.reviewer}::${report.key}::${report.language}`;
         reportsBySlot.set(slot, report);
       });
+      Object.values(nextData.reportSlots || {}).forEach(report => {
+        if (!report) return;
+        const slot = report.reportSlot || `${report.reviewerRegistrationId || report.reviewer}::${report.key}::${report.language}`;
+        reportsBySlot.set(slot, report);
+      });
       Object.values(drafts.reports || {}).forEach(draft => {
         if (!draft?.reportSlot) return;
         const existing = reportsBySlot.get(draft.reportSlot);
@@ -280,6 +285,9 @@ app.patch('/api/event-phase', requireAdmin, async (req, res) => {
         }
       });
       nextData.reports = [...reportsBySlot.values()];
+      nextData.reportSlots = Object.fromEntries(
+        [...reportsBySlot.entries()].map(([slot, report]) => [draftKeyFor(slot), report])
+      );
     }
 
     const globalState = {
@@ -461,32 +469,13 @@ app.post('/api/reports', async (req, res) => {
     report.reportSlot = report.reportSlot || `${report.reviewerRegistrationId || String(report.reviewer).trim().toLowerCase()}::${report.key || 'N/A'}::${String(report.language).toLowerCase()}`;
     report.updatedAt = Number(report.updatedAt || report.timestamp || Date.now());
     // Like code submissions, reports are guarded by the live event phase in
-    // MongoDB. This prevents a late edit even if a player holds an old page.
+    // MongoDB. Store the current report in its own keyed slot rather than
+    // mutating the shared reports array: this stays atomic under a 100-player
+    // rush and avoids aggregation-pipeline update failures on hosted MongoDB.
+    const slotKey = draftKeyFor(report.reportSlot);
     const result = await Registry.updateOne(
       { singletonId: 'registry', 'data.globalState.phase': 'hunting' },
-      [{
-        $set: {
-          data: {
-            $mergeObjects: [
-              { $ifNull: ['$data', {}] },
-              {
-                reports: {
-                  $concatArrays: [
-                    {
-                      $filter: {
-                        input: { $ifNull: ['$data.reports', []] },
-                        as: 'existing',
-                        cond: { $ne: ['$$existing.reportSlot', report.reportSlot] },
-                      },
-                    },
-                    [report],
-                  ],
-                },
-              },
-            ],
-          },
-        },
-      }],
+      { $set: { [`data.reportSlots.${slotKey}`]: report } },
       { upsert: false }
     );
     if (result.matchedCount !== 1) {
