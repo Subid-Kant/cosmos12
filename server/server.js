@@ -566,15 +566,13 @@ app.post('/api/register', registrationLimiter, async (req, res) => {
     for (const m of parsedMembers) {
       if (!m.name?.trim()) return res.status(400).json({ error: 'Each member must have a name.' });
       const email = String(m.email || '').trim().toLowerCase();
-      const phone = String(m.phone || '').replace(/\D/g, '').replace(/^91(?=\d{10}$)/, '');
       if (!/^\S+@\S+\.\S+$/.test(email)) return res.status(400).json({ error: 'Enter a valid email address for each member.' });
-      if (!/^[6-9]\d{9}$/.test(phone)) return res.status(400).json({ error: 'Enter a valid 10-digit Indian phone number for each member.' });
       const existing = await Registration.findOne({
         paymentStatus: { $ne: 'rejected' },
-        $or: [{ 'members.email': email }, { 'members.phone': phone }],
+        'members.email': email,
       });
-      if (existing) return res.status(409).json({ error: `${email} or ${phone} is already registered.` });
-      normalizedMembers.push({ name: m.name.trim(), email, phone });
+      if (existing) return res.status(409).json({ error: `${email} is already registered.` });
+      normalizedMembers.push({ name: m.name.trim(), email });
     }
 
     // Generate unique registration ID first so we can use it in the URL
@@ -759,14 +757,14 @@ app.post('/api/arena-login', async (req, res) => {
 });
 
 // Persist a team's language independently of browser storage. This preserves
-// Java/C++/etc. when the participant logs in again for a later round.
+// the selected Python, Java, or C track when the participant logs in again.
 app.patch('/api/arena-profile', async (req, res) => {
   try {
     const registrationId = (req.body.registrationId || '').trim().toUpperCase();
     const programmingLanguage = (req.body.programmingLanguage || '').trim().toLowerCase();
     // These are the only announced event tracks. Enforce the same list on the
     // server so a client cannot submit a language outside its verification lane.
-    const allowedLanguages = new Set(['python', 'java', 'c', 'cpp']);
+    const allowedLanguages = new Set(['python', 'java', 'c']);
     if (!registrationId || !allowedLanguages.has(programmingLanguage)) {
       return res.status(400).json({ error: 'A valid registration ID and programming language are required.' });
     }

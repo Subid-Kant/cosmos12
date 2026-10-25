@@ -41,7 +41,7 @@ const LANGUAGES = [
 
 // Bug Arena is operated in four isolated competition tracks. Keeping this
 // explicit prevents a submission from being reviewed against another language.
-const EVENT_LANGUAGE_IDS = ['python', 'java', 'c', 'cpp'];
+const EVENT_LANGUAGE_IDS = ['python', 'java', 'c'];
 const EVENT_LANGUAGES = LANGUAGES.filter(lang => EVENT_LANGUAGE_IDS.includes(lang.id));
 
 // ─── Keyword Sets for Syntax Highlighting ───────────────────────────────────
@@ -548,7 +548,7 @@ const BugArena = ({ onAbort }) => {
   const [registrationId, setRegistrationId] = useState('');
   const [paymentStatus, setPaymentStatus] = useState('pending'); // 'pending' | 'verified' | 'rejected'
   const [regMembers, setRegMembers] = useState([
-    { name: '', email: '', phone: '' },
+    { name: '', email: '' },
   ]);
   const [isRegistering, setIsRegistering] = useState(false);
   const [regError, setRegError] = useState('');
@@ -576,7 +576,7 @@ const BugArena = ({ onAbort }) => {
   const [isVerifying, setIsVerifying] = useState('');
   const [expandedReg, setExpandedReg] = useState(null);
   const [adminNoteInput, setAdminNoteInput] = useState('');
-  const [compareLangFilter, setCompareLangFilter] = useState('all');
+  const [compareLangFilter, setCompareLangFilter] = useState('python');
   const [compareStatusFilter, setCompareStatusFilter] = useState('all'); // 'all' | 'pending' | 'decided' | 'spam'
   const [compareSearchQuery, setCompareSearchQuery] = useState('');
   const [expandedAiDossier, setExpandedAiDossier] = useState({});
@@ -1470,7 +1470,6 @@ const BugArena = ({ onAbort }) => {
     for (const m of activeMembers) {
       if (!m.name.trim()) { setRegError('Please enter all member names.'); return; }
       if (!/^\S+@\S+\.\S+$/.test(m.email.trim())) { setRegError('Please enter a valid email address for every member.'); return; }
-      if (!/^[6-9]\d{9}$/.test(m.phone.replace(/\D/g, '').replace(/^91(?=\d{10}$)/, ''))) { setRegError('Please enter a valid 10-digit Indian phone number for every member.'); return; }
     }
 
     setIsRegistering(true);
@@ -1535,10 +1534,10 @@ const BugArena = ({ onAbort }) => {
   const handleExportRegistrations = () => {
     const escape = value => `"${String(value ?? '').replace(/"/g, '""')}"`;
     const rows = [
-      ['Registration ID', 'Approval status', 'Submitted at', 'Name', 'Email', 'Phone', 'Admin note'],
+      ['Registration ID', 'Approval status', 'Submitted at', 'Name', 'Email', 'Admin note'],
       ...adminRegistrations.map(reg => {
         const members = reg.members || [];
-        return [reg.registrationId, reg.paymentStatus === 'verified' ? 'Approved' : reg.paymentStatus === 'rejected' ? 'Rejected' : 'Pending approval', new Date(reg.submittedAt).toLocaleString('en-IN'), members[0]?.name || '', members[0]?.email || '', members[0]?.phone || '', reg.adminNote || ''];
+        return [reg.registrationId, reg.paymentStatus === 'verified' ? 'Approved' : reg.paymentStatus === 'rejected' ? 'Rejected' : 'Pending approval', new Date(reg.submittedAt).toLocaleString('en-IN'), members[0]?.name || '', members[0]?.email || '', reg.adminNote || ''];
       }),
     ];
     const blob = new Blob(['\ufeff' + rows.map(row => row.map(escape).join(',')).join('\n')], { type: 'text/csv;charset=utf-8' });
@@ -2066,15 +2065,11 @@ const BugArena = ({ onAbort }) => {
       unmatchedHunterBugs: [],
       missedCreatorBugs: [],
       verifiedCount: 0,
-      hunterBonusCount: 0,
-      acceptedBonusCount: 0,
       falsePositiveCount: 0,
       precisionRate: 0,
       isHighSpam: false,
       hunterScore: 0,
       creatorScore: 0,
-      recommendedWinner: 'None',
-      recommendationReason: 'Insufficient data for comparison',
       status: 'NO_DATA',
     };
 
@@ -2218,80 +2213,43 @@ const BugArena = ({ onAbort }) => {
       .filter(({ cIdx }) => !matchedC.has(cIdx));
 
     let verifiedCount = 0;
-    let hunterBonusCount = 0;
     let falsePositiveCount = 0;
-    let acceptedBonusCount = 0;
 
     pairs.forEach(p => {
       if (p.status === 'confirmed') {
         verifiedCount++;
-        if (p.hBug.fix && p.hBug.fix.trim().length > 5) hunterBonusCount++;
       } else if (p.status === 'rejected') {
         falsePositiveCount++;
       }
     });
 
     unmatchedHunterBugs.forEach(u => {
-      if (u.status === 'bonus') {
-        acceptedBonusCount++;
-      } else if (u.status === 'rejected') {
+      if (u.status === 'rejected') {
         falsePositiveCount++;
       }
     });
 
-    // Precision & Anti-Spam Calculation (prevents spamming reports to steal wins)
+    // A correct, admin-confirmed bug match earns exactly one point. Incorrect,
+    // missed, or extra claims earn zero: there are no penalties, bonuses, or
+    // creator-defense points.
     const totalReported = hunterBugs.length;
     const precisionRate = totalReported > 0
-      ? Math.round(((verifiedCount + acceptedBonusCount) / totalReported) * 100)
+      ? Math.round((verifiedCount / totalReported) * 100)
       : 0;
-    const isHighSpam = (totalReported >= (creatorBugs.length + 2) && precisionRate < 50) || falsePositiveCount >= 3;
-
-    // Fair Scoring Model
-    // Verified planted bugs: +100 pts
-    // Bonus genuine unintended bugs: +75 pts
-    // Accurate fixes provided: +25 pts
-    // False/unverified claims: -40 pts penalty
-    const hunterScore = Math.max(0, (verifiedCount * 100) + (acceptedBonusCount * 75) + (hunterBonusCount * 25) - (falsePositiveCount * 40));
-    // Creator Defense: +80 pts per missed stealth bug + 50 pts bonus if hunter spammed
-    const creatorScore = (missedCreatorBugs.length * 80) + (isHighSpam ? 50 : 0);
-
-    let recommendedWinner = 'None';
-    let recommendationReason = '';
-
-    if (isHighSpam && creatorScore >= hunterScore) {
-      recommendedWinner = hunterReport.originalTeam;
-      recommendationReason = `Creating Team defended against ${falsePositiveCount} false claims (Finding Team spam-penalized: ${precisionRate}% accuracy). Creator's stealth defense prevailed!`;
-    } else if (verifiedCount > 0 && verifiedCount >= creatorBugs.length && falsePositiveCount === 0) {
-      recommendedWinner = hunterReport.reviewer;
-      recommendationReason = `Finding Team cleanly caught all ${verifiedCount}/${creatorBugs.length} planted bugs with 100% precision & 0 false claims!`;
-    } else if (missedCreatorBugs.length > verifiedCount) {
-      recommendedWinner = hunterReport.originalTeam;
-      recommendationReason = `Creating Team's stealth bugs prevailed (${missedCreatorBugs.length} missed bugs vs ${verifiedCount} caught).`;
-    } else if (hunterScore > creatorScore && precisionRate >= 50) {
-      recommendedWinner = hunterReport.reviewer;
-      recommendationReason = `Finding Team leads on verified accuracy points (${hunterScore} pts vs ${creatorScore} defense pts, ${precisionRate}% precision).`;
-    } else if (creatorScore > hunterScore) {
-      recommendedWinner = hunterReport.originalTeam;
-      recommendationReason = `Creating Team leads on stealth defense points (${creatorScore} pts vs ${hunterScore} pts).`;
-    } else {
-      recommendedWinner = 'TIE';
-      recommendationReason = `Close contest (${hunterScore} pts each). Admin discretion or code quality tie-breaker advised.`;
-    }
+    const isHighSpam = false;
+    const hunterScore = verifiedCount;
+    const creatorScore = 0;
 
     return {
       pairs,
       unmatchedHunterBugs,
       missedCreatorBugs,
       verifiedCount,
-      hunterBonusCount,
-      acceptedBonusCount,
       falsePositiveCount,
       precisionRate,
       isHighSpam,
       hunterScore,
       creatorScore,
-      recommendedWinner,
-      recommendationReason,
       status: verifiedCount > 0 ? (verifiedCount === creatorBugs.length ? 'PERFECT' : 'PARTIAL') : 'PENDING_REVIEW',
     };
   };
@@ -2413,11 +2371,11 @@ const BugArena = ({ onAbort }) => {
       const langName = LANGUAGES.find(l => l.id === (r.language || creatorData?.language))?.name || (r.language || 'Code').toUpperCase();
 
       summaryText += `MATCH #${idx + 1} [${langName}] Key: ${r.key}\n`;
-      summaryText += `  Finding Team:  ${r.reviewer} (Net Score: ${analysis.hunterScore} pts, Accuracy: ${analysis.precisionRate}%)\n`;
-      summaryText += `  Creating Team: ${r.originalTeam} (Defense Score: ${analysis.creatorScore} pts)\n`;
-      summaryText += `  Verified Bugs: ${analysis.verifiedCount} caught | ${analysis.falsePositiveCount} false claims | ${analysis.missedCreatorBugs.length} stealth bugs held\n`;
-      summaryText += `  WINNER:        ${verdict?.winner || analysis.recommendedWinner} ${verdict ? '👑 [Decided]' : '🤖 [AI Recommended]'}\n`;
-      summaryText += `  Verdict Note:  ${verdict?.reason || analysis.recommendationReason}\n`;
+      summaryText += `  Finding Team:  ${r.reviewer} (${verdict?.verifiedCount || 0} confirmed point(s))\n`;
+      summaryText += `  Creating Team: ${r.originalTeam} (0 defense points)\n`;
+      summaryText += `  Correct Matches: ${verdict?.verifiedCount || 0} | Other claims: 0 points\n`;
+      summaryText += `  WINNER:        ${verdict?.winner || 'Not yet decided'} ${verdict ? '👑 [Decided]' : ''}\n`;
+      summaryText += `  Verdict Note:  ${verdict?.reason || 'Admin review pending'}\n`;
       summaryText += `───────────────────────────────────────────────────────────\n`;
     });
 
@@ -2616,19 +2574,6 @@ const BugArena = ({ onAbort }) => {
                     required
                   />
                 </div>
-                <div className="ba-field-group" style={{ marginTop: '0.6rem' }}>
-                  <label className="ba-field-label"><span>📱</span> Phone Number</label>
-                  <input
-                    type="tel"
-                    className="ba-field-input"
-                    value={regMembers[0].phone}
-                    onChange={e => updateRegMember(0, 'phone', e.target.value)}
-                    placeholder="10-digit mobile number"
-                    inputMode="numeric"
-                    maxLength={13}
-                    required
-                  />
-                </div>
               </div>
 
               {/* Error message */}
@@ -2649,7 +2594,7 @@ const BugArena = ({ onAbort }) => {
               </button>
 
               <p style={{ textAlign: 'center', color: '#6b6b8a', fontSize: '0.76rem', margin: 0 }}>
-                🔒 Registration is free. Email addresses and phone numbers are used only to prevent duplicate entries and manage attendance.
+                🔒 Registration is free. Your Gmail address is used only to prevent duplicate entries and manage attendance.
               </p>
             </form>
           </div>
@@ -3647,9 +3592,6 @@ const BugArena = ({ onAbort }) => {
                               {m?.email && (
                                 <div style={{ fontSize: '0.8rem', color: '#7a7a9e', marginTop: '0.3rem' }}>📧 {m.email}</div>
                               )}
-                              {m?.phone && (
-                                <div style={{ fontSize: '0.8rem', color: '#7a7a9e', marginTop: '0.3rem' }}>📱 {m.phone}</div>
-                              )}
                             </div>
                           ))}
 
@@ -3832,7 +3774,7 @@ const BugArena = ({ onAbort }) => {
                   </span>
                 </div>
                 <div style={{ color: '#8888aa', fontSize: '0.78rem', marginTop: '0.2rem' }}>
-                  Intelligent multi-probability semantic evaluator &amp; anti-spam adjudication engine
+                  Confirm claims against the submitted source. Only admin-confirmed bug matches earn 1 point.
                 </div>
               </div>
 
@@ -3843,9 +3785,9 @@ const BugArena = ({ onAbort }) => {
                   className="ba-neon-btn ba-btn-sm"
                   onClick={() => handleBatchAutoVerify(compareLangFilter)}
                   style={{ background: 'rgba(74, 222, 128, 0.15)', borderColor: 'rgba(74, 222, 128, 0.6)', color: '#4ade80', fontWeight: 800 }}
-                  title="Counts high-confidence alignments to guide manual review. It never changes points, claims, or winners."
+                  title="Highlights possible alignments to guide manual review. It never changes points, claims, or winners."
                 >
-                  🔎 Review Suggestions
+                  🔎 Highlight Matches
                 </button>
 
                 <button
@@ -3891,22 +3833,20 @@ const BugArena = ({ onAbort }) => {
                     🌐 Language isolation board
                   </span>
                   <span style={{ color: '#9fa0bd', fontSize: '0.73rem' }}>
-                    Only Python ↔ Python, Java ↔ Java, C ↔ C, and C++ ↔ C++ reports are reviewable.
+                    Python, Java, and C are reviewed in separate language lanes. Languages are never mixed.
                   </span>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))', gap: '0.6rem' }}>
-                {['all', ...EVENT_LANGUAGES.map(lang => lang.id)].map((langKey) => {
+                {EVENT_LANGUAGES.map(lang => lang.id).map((langKey) => {
                   const eligibleReports = reportsList.filter(r => {
                     const creator = teamEntries.find(t => t.team === r.originalTeam || t.key === r.key);
                     const reportLanguage = (r.language || '').toLowerCase();
                     return EVENT_LANGUAGE_IDS.includes(reportLanguage) && reportLanguage === (creator?.language || '').toLowerCase();
                   });
-                  const count = langKey === 'all' ? eligibleReports.length : eligibleReports.filter(r => (r.language || '').toLowerCase() === langKey).length;
-                  const decidedCount = langKey === 'all'
-                    ? eligibleReports.filter(r => !!adminRegistryData?.verifications?.[r.id]).length
-                    : eligibleReports.filter(r => (r.language || '').toLowerCase() === langKey && !!adminRegistryData?.verifications?.[r.id]).length;
+                  const count = eligibleReports.filter(r => (r.language || '').toLowerCase() === langKey).length;
+                  const decidedCount = eligibleReports.filter(r => (r.language || '').toLowerCase() === langKey && !!adminRegistryData?.verifications?.[r.id]).length;
                   const langObj = LANGUAGES.find(l => l.id === langKey);
-                  const label = langKey === 'all' ? 'All Tracks' : (langObj ? langObj.name : langKey.toUpperCase());
+                  const label = langObj ? langObj.name : langKey.toUpperCase();
                   const isSelected = compareLangFilter === langKey;
 
                   return (
@@ -4036,7 +3976,7 @@ const BugArena = ({ onAbort }) => {
                     teamStats[r.reviewer] = { team: r.reviewer, points: 0, wins: 0, matches: 0, verifiedBugs: 0, precision: [] };
                   }
                   teamStats[r.reviewer].matches += verdict ? 1 : 0;
-                  teamStats[r.reviewer].points += verdict?.hunterScore || 0;
+                  teamStats[r.reviewer].points += verdict?.verifiedCount || 0;
                   teamStats[r.reviewer].verifiedBugs += verdict?.verifiedCount || 0;
                   if (verdict) teamStats[r.reviewer].precision.push(analysis.precisionRate);
                   if (verdict?.winner === r.reviewer) {
@@ -4048,7 +3988,7 @@ const BugArena = ({ onAbort }) => {
                     teamStats[r.originalTeam] = { team: r.originalTeam, points: 0, wins: 0, matches: 0, verifiedBugs: 0, precision: [] };
                   }
                   teamStats[r.originalTeam].matches += verdict ? 1 : 0;
-                  teamStats[r.originalTeam].points += verdict?.creatorScore || 0;
+                  // No creator-defense points are awarded in this event.
                   if (verdict?.winner === r.originalTeam) {
                     teamStats[r.originalTeam].wins += 1;
                   }
@@ -4070,7 +4010,7 @@ const BugArena = ({ onAbort }) => {
                         <span>{compareLangFilter === 'all' ? 'All Tracks' : compareLangFilter.toUpperCase()} Tournament Standings</span>
                       </h3>
                       <span style={{ fontSize: '0.78rem', color: '#a0a0c5' }}>
-                        Ranked by Fair Verified Points &amp; Anti-Spam Accuracy
+                        Ranked by administrator-confirmed bug matches only (1 point each)
                       </span>
                     </div>
 
@@ -4260,18 +4200,15 @@ const BugArena = ({ onAbort }) => {
                               borderRadius: '20px',
                               padding: '0.2rem 0.8rem',
                             }}>
-                              {savedVerdict ? `✅ DECIDED: ${savedVerdict.winner}` : isReviewed ? `🟡 READY TO DECLARE (${analysis.verifiedCount} confirmed)` : '🔎 EVIDENCE NOT YET REVIEWED'}
+                              {savedVerdict ? `✅ DECIDED: ${savedVerdict.winner}` : isReviewed ? `🟡 READY TO DECLARE (${analysis.verifiedCount} correct)` : '🔎 REVIEW THE CHECKLIST'}
                             </span>
 
                             <span style={{ fontSize: '0.78rem', color: '#a0a0c5' }}>
-                              Net Finder Score: <strong style={{ color: '#4ade80' }}>{analysis.hunterScore} pts</strong>
-                              {' '}({analysis.verifiedCount} verified, {analysis.falsePositiveCount} false @ -40/ea)
+                              Finder points: <strong style={{ color: '#4ade80' }}>{analysis.hunterScore}</strong>
+                              {' '}({analysis.verifiedCount} correct match{analysis.verifiedCount === 1 ? '' : 'es'} × 1)
                             </span>
 
-                            <span style={{ fontSize: '0.78rem', color: '#a0a0c5' }}>
-                              Creator Defense: <strong style={{ color: '#ff6b6b' }}>{analysis.creatorScore} pts</strong>
-                              {' '}({analysis.missedCreatorBugs.length} stealth bugs defended)
-                            </span>
+                            <span style={{ fontSize: '0.78rem', color: '#a0a0c5' }}>Incorrect or missed claims receive <strong>0 points</strong>. No creator-defense points.</span>
                           </div>
 
                           {/* Deliberately compact decision snapshot: admins can
@@ -4317,9 +4254,9 @@ const BugArena = ({ onAbort }) => {
                               className="ba-neon-btn ba-btn-sm"
                               onClick={() => handleSaveAdminDecision(r.id, r.reviewer, {
                                 hunterScore: analysis.hunterScore,
-                                creatorScore: analysis.creatorScore,
+                                creatorScore: 0,
                                 verifiedCount: analysis.verifiedCount,
-                                reason: analysis.recommendationReason,
+                                reason: `${analysis.verifiedCount} correct bug match(es) confirmed by admin.`,
                               })}
                               disabled={!isReviewed}
                               title={isReviewed ? 'Save finding team as the winner' : 'Open and review the evidence before declaring a winner'}
@@ -4332,17 +4269,17 @@ const BugArena = ({ onAbort }) => {
                                 cursor: isReviewed ? 'pointer' : 'not-allowed',
                               }}
                             >
-                              🥇 Award: {r.reviewer} ({analysis.hunterScore} pts)
+                              🥇 Declare Finder: {r.reviewer} ({analysis.hunterScore} point{analysis.hunterScore === 1 ? '' : 's'})
                             </button>
 
                             <button
                               type="button"
                               className="ba-neon-btn ba-btn-sm"
                               onClick={() => handleSaveAdminDecision(r.id, r.originalTeam, {
-                                hunterScore: analysis.hunterScore,
-                                creatorScore: analysis.creatorScore,
+                                hunterScore: 0,
+                                creatorScore: 0,
                                 verifiedCount: analysis.verifiedCount,
-                                reason: analysis.recommendationReason,
+                                reason: 'Admin selected the creating team. No defense points are awarded.',
                               })}
                               disabled={!isReviewed}
                               title={isReviewed ? 'Save creating team as the winner' : 'Open and review the evidence before declaring a winner'}
@@ -4355,15 +4292,15 @@ const BugArena = ({ onAbort }) => {
                                 cursor: isReviewed ? 'pointer' : 'not-allowed',
                               }}
                             >
-                              🥇 Award: {r.originalTeam} ({analysis.creatorScore} pts)
+                              🥇 Declare Creator: {r.originalTeam} (0 points)
                             </button>
 
                             <button
                               type="button"
                               className="ba-neon-btn ba-btn-sm"
                               onClick={() => handleSaveAdminDecision(r.id, 'DRAW / TIE', {
-                                hunterScore: analysis.hunterScore,
-                                creatorScore: analysis.creatorScore,
+                                hunterScore: 0,
+                                creatorScore: 0,
                                 verifiedCount: analysis.verifiedCount,
                                 reason: 'Admin declared tie',
                               })}
@@ -4390,28 +4327,16 @@ const BugArena = ({ onAbort }) => {
                           </span>
                         </summary>
 
-                      {/* AI Judging Recommendation Banner */}
                       <div style={{
-                        padding: '0.8rem 1.6rem',
-                        background: 'rgba(0, 0, 0, 0.35)',
+                        padding: '0.7rem 1.6rem',
+                        background: 'rgba(0, 0, 0, 0.22)',
                         borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
                         display: 'flex',
-                        justifyContent: 'space-between',
+                        justifyContent: 'flex-end',
                         alignItems: 'center',
                         flexWrap: 'wrap',
                         gap: '0.8rem',
                       }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flex: 1 }}>
-                          <span style={{ fontSize: '1.1rem' }}>🤖</span>
-                          <span style={{ fontSize: '0.82rem', color: '#e4e4f0' }}>
-                            <strong>Review aid only — no points are awarded automatically:</strong>{' '}
-                            <span style={{ color: analysis.recommendedWinner === r.reviewer ? '#4ade80' : analysis.recommendedWinner === r.originalTeam ? '#ff6b6b' : '#fbbf24', fontWeight: 800 }}>
-                              {analysis.recommendedWinner}
-                            </span>
-                            {' — '}{analysis.recommendationReason}
-                          </span>
-                        </div>
-
                         <div style={{ display: 'flex', gap: '0.6rem' }}>
                           <button
                             type="button"
@@ -4432,24 +4357,6 @@ const BugArena = ({ onAbort }) => {
                             <span>👁️ {isCodeOpen ? 'Hide Code Split-View' : 'Source Code Split-View'}</span>
                           </button>
 
-                          <button
-                            type="button"
-                            onClick={() => setExpandedAiDossier(prev => ({ ...prev, [r.id]: !prev[r.id] }))}
-                            style={{
-                              background: 'transparent',
-                              border: '1px solid rgba(251, 191, 36, 0.3)',
-                              borderRadius: '6px',
-                              color: '#fbbf24',
-                              padding: '0.25rem 0.7rem',
-                              fontSize: '0.74rem',
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '0.35rem',
-                            }}
-                          >
-                            <span>{isDossierOpen ? '▲ Hide Analysis Dossier' : '▼ View AI Semantic Breakdown'}</span>
-                          </button>
                         </div>
                       </div>
 
