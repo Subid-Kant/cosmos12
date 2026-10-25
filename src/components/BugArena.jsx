@@ -1028,7 +1028,7 @@ const BugArena = ({ onAbort }) => {
       // Leaving fullscreen during a live contest is treated exactly like
       // leaving the arena. The final judging phase intentionally releases it.
       if (!isFs && fullscreenStartedRef.current && globalPhaseRef.current !== 'post_event' &&
-        isSetup && isRegistered && !isAdminLoggedIn && !isLocked) {
+        isRegistered && !isAdminLoggedIn && !isLocked) {
         setIsLocked(true);
         setCheatWarnings(1);
         setReentryRequested(false);
@@ -5102,6 +5102,25 @@ const BugArena = ({ onAbort }) => {
             renderAdminDashboard()
           ) : !isRegistered ? (
             renderRegistrationForm()
+          ) : !isAdminLoggedIn && globalEventPhase !== 'post_event' && !isFullscreen ? (
+            <div className="ba-fade-in" style={{
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+              minHeight: '420px', gap: '1.4rem', textAlign: 'center', padding: '3rem 2rem',
+              background: 'radial-gradient(ellipse at center, rgba(251,191,36,0.1) 0%, rgba(10,12,24,0.8) 70%)',
+              border: '2px solid rgba(251,191,36,0.45)', borderRadius: '18px',
+            }}>
+              <div style={{ fontSize: '3.5rem' }}>🔒</div>
+              <div>
+                <h2 style={{ margin: 0, color: '#fbbf24', fontFamily: 'Space Grotesk, sans-serif' }}>Fullscreen required</h2>
+                <p style={{ maxWidth: '540px', color: '#b0b0d0', lineHeight: 1.65, margin: '0.7rem auto 0' }}>
+                  Enter fullscreen to begin the live arena. Leaving fullscreen before final judging locks your session and requires administrator approval.
+                </p>
+              </div>
+              <button className="ba-neon-btn ba-btn-yellow" onClick={handleUnlockWorkspace} style={{ fontSize: '1rem', padding: '0.9rem 2rem' }}>
+                ⛶ Enter Fullscreen &amp; Begin
+              </button>
+              <span style={{ color: '#7777aa', fontSize: '0.78rem' }}>Fullscreen ends automatically when the administrator starts final judging.</span>
+            </div>
           ) : !isSetup ? (
             <div className="ba-fade-in">
               <div className="ba-section-header">
@@ -5169,25 +5188,6 @@ const BugArena = ({ onAbort }) => {
                   </button>
                 </form>
               </div>
-            </div>
-          ) : !isAdminLoggedIn && globalEventPhase !== 'post_event' && !isFullscreen ? (
-            <div className="ba-fade-in" style={{
-              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-              minHeight: '420px', gap: '1.4rem', textAlign: 'center', padding: '3rem 2rem',
-              background: 'radial-gradient(ellipse at center, rgba(251,191,36,0.1) 0%, rgba(10,12,24,0.8) 70%)',
-              border: '2px solid rgba(251,191,36,0.45)', borderRadius: '18px',
-            }}>
-              <div style={{ fontSize: '3.5rem' }}>🔒</div>
-              <div>
-                <h2 style={{ margin: 0, color: '#fbbf24', fontFamily: 'Space Grotesk, sans-serif' }}>Fullscreen required</h2>
-                <p style={{ maxWidth: '540px', color: '#b0b0d0', lineHeight: 1.65, margin: '0.7rem auto 0' }}>
-                  Enter fullscreen to begin the live arena. Leaving fullscreen before final judging locks your session and requires administrator approval.
-                </p>
-              </div>
-              <button className="ba-neon-btn ba-btn-yellow" onClick={handleUnlockWorkspace} style={{ fontSize: '1rem', padding: '0.9rem 2rem' }}>
-                ⛶ Enter Fullscreen &amp; Begin
-              </button>
-              <span style={{ color: '#7777aa', fontSize: '0.78rem' }}>Fullscreen ends automatically when the administrator starts final judging.</span>
             </div>
           ) : (
             <>
