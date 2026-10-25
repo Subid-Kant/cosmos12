@@ -44,6 +44,39 @@ const LANGUAGES = [
 const EVENT_LANGUAGE_IDS = ['python', 'java', 'c'];
 const EVENT_LANGUAGES = LANGUAGES.filter(lang => EVENT_LANGUAGE_IDS.includes(lang.id));
 
+const TRACK_CONFIG = {
+  python: {
+    id: 'python',
+    name: 'Python',
+    icon: '🐍',
+    color: '#38bdf8',
+    borderColor: 'rgba(56, 189, 248, 0.4)',
+    bgGradient: 'linear-gradient(135deg, rgba(56, 189, 248, 0.08) 0%, rgba(10, 12, 24, 0.7) 100%)',
+    headerBg: 'rgba(56, 189, 248, 0.15)',
+    badgeBg: 'rgba(56, 189, 248, 0.2)',
+  },
+  java: {
+    id: 'java',
+    name: 'Java',
+    icon: '☕',
+    color: '#f97316',
+    borderColor: 'rgba(249, 115, 22, 0.4)',
+    bgGradient: 'linear-gradient(135deg, rgba(249, 115, 22, 0.08) 0%, rgba(10, 12, 24, 0.7) 100%)',
+    headerBg: 'rgba(249, 115, 22, 0.15)',
+    badgeBg: 'rgba(249, 115, 22, 0.2)',
+  },
+  c: {
+    id: 'c',
+    name: 'C',
+    icon: '⚙️',
+    color: '#a855f7',
+    borderColor: 'rgba(168, 85, 247, 0.4)',
+    bgGradient: 'linear-gradient(135deg, rgba(168, 85, 247, 0.08) 0%, rgba(10, 12, 24, 0.7) 100%)',
+    headerBg: 'rgba(168, 85, 247, 0.15)',
+    badgeBg: 'rgba(168, 85, 247, 0.2)',
+  },
+};
+
 // ─── Keyword Sets for Syntax Highlighting ───────────────────────────────────
 const LANGUAGE_KEYWORDS = {
   python: ['def', 'class', 'if', 'elif', 'else', 'for', 'while', 'return', 'import', 'from', 'as', 'try', 'except', 'finally', 'with', 'yield', 'lambda', 'pass', 'break', 'continue', 'and', 'or', 'not', 'in', 'is', 'None', 'True', 'False', 'print', 'self', 'raise', 'del', 'global', 'nonlocal', 'assert', 'async', 'await'],
@@ -576,6 +609,8 @@ const BugArena = ({ onAbort }) => {
   const [isVerifying, setIsVerifying] = useState('');
   const [expandedReg, setExpandedReg] = useState(null);
   const [adminNoteInput, setAdminNoteInput] = useState('');
+  const [teamsLangFilter, setTeamsLangFilter] = useState('all'); // 'all' | 'python' | 'java' | 'c'
+  const [teamsSearchQuery, setTeamsSearchQuery] = useState('');
   const [compareLangFilter, setCompareLangFilter] = useState('python');
   const [compareStatusFilter, setCompareStatusFilter] = useState('all'); // 'all' | 'pending' | 'decided' | 'spam'
   const [compareSearchQuery, setCompareSearchQuery] = useState('');
@@ -3684,62 +3719,512 @@ const BugArena = ({ onAbort }) => {
         )}
 
         {/* TAB 1: Creating Teams (Code & Planted Bugs) */}
-        {adminActiveTab === 'teams' && (
-          <div className="ba-admin-dashboard ba-fade-in">
-            <div className="ba-admin-header">
-              <div className="ba-admin-header-title">🔧 Creating Teams — Submissions & Planted Bugs ({teamEntries.length})</div>
-            </div>
+        {adminActiveTab === 'teams' && (() => {
+          const pythonEntries = teamEntries.filter(t => (t.language || '').toLowerCase().trim() === 'python');
+          const javaEntries = teamEntries.filter(t => (t.language || '').toLowerCase().trim() === 'java');
+          const cEntries = teamEntries.filter(t => (t.language || '').toLowerCase().trim() === 'c');
+          const otherEntries = teamEntries.filter(t => !EVENT_LANGUAGE_IDS.includes((t.language || '').toLowerCase().trim()));
 
-            {teamEntries.length === 0 ? (
-              <div style={{ padding: '3rem', textAlign: 'center', color: '#7a7a9e' }}>
-                <p>No code submissions yet. When teams submit their buggy code, their source code and planted bugs will appear here!</p>
-              </div>
-            ) : (
-              <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-                {teamEntries.map((t) => (
-                  <div key={t.key} style={{ background: 'rgba(0, 0, 0, 0.4)', border: '1px solid rgba(0, 255, 255, 0.15)', borderRadius: '16px', padding: '1.5rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.6rem' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
-                        <span style={{ fontSize: '1.2rem', fontWeight: 800, color: '#00ffff', fontFamily: 'Space Grotesk, sans-serif' }}>
-                          Team: {t.team}
-                        </span>
-                        <span className="ba-decoded-lang" style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem' }}>
-                          {LANGUAGES.find(l => l.id === t.language)?.name || t.language}
-                        </span>
-                      </div>
-                      <span style={{ fontFamily: 'Courier New', color: '#fbbf24', fontWeight: 800, fontSize: '1.1rem', background: 'rgba(251, 191, 36, 0.1)', padding: '0.3rem 0.8rem', borderRadius: '8px', border: '1px solid rgba(251, 191, 36, 0.3)' }}>
-                        KEY: {t.key}
-                      </span>
-                    </div>
+          const trackMap = {
+            python: pythonEntries,
+            java: javaEntries,
+            c: cEntries,
+          };
 
-                    <CodeEditor
-                      code={t.code}
-                      language={t.language}
-                      readOnly
-                      teamInfo={{ team: t.team }}
-                    />
+          const matchesSearch = (t) => {
+            if (!teamsSearchQuery.trim()) return true;
+            const q = teamsSearchQuery.toLowerCase().trim();
+            const team = (t.team || '').toLowerCase();
+            const key = (t.key || '').toLowerCase();
+            const regId = (t.registrationId || '').toLowerCase();
+            return team.includes(q) || key.includes(q) || regId.includes(q);
+          };
 
-                    <div style={{ marginTop: '1.2rem', background: 'rgba(255, 107, 107, 0.05)', border: '1px solid rgba(255, 107, 107, 0.2)', padding: '1.2rem', borderRadius: '12px' }}>
-                      <h4 style={{ color: '#ff6b6b', margin: '0 0 0.8rem', fontFamily: 'Space Grotesk, sans-serif', fontSize: '0.95rem' }}>
-                        🐛 Planted Bugs Registered by Team "{t.team}" ({(t.createdBugs || []).length}):
-                      </h4>
-                      {(t.createdBugs || []).map((b, i) => (
-                        <div key={i} style={{ background: 'rgba(0, 0, 0, 0.3)', borderLeft: '3px solid #ff6b6b', padding: '0.7rem 1rem', borderRadius: '0 8px 8px 0', marginBottom: '0.5rem' }}>
-                          <span style={{ color: '#ff6b6b', fontWeight: 800, fontSize: '0.82rem', fontFamily: 'Space Grotesk, sans-serif' }}>
-                            BUG #{i + 1} — Line #{b.lineNumber || 'N/A'}:
-                          </span>
-                          <p style={{ margin: '0.2rem 0 0', color: '#e4e4f0', fontSize: '0.88rem' }}>
-                            {b.description}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
+          const tracksToDisplay = teamsLangFilter === 'all'
+            ? EVENT_LANGUAGE_IDS
+            : [teamsLangFilter];
+
+          const handleCopyTrackKeys = (trackId) => {
+            const list = trackMap[trackId] || [];
+            const trackName = TRACK_CONFIG[trackId]?.name || trackId.toUpperCase();
+            if (list.length === 0) {
+              showToast(`No submitted ${trackName} codes to copy.`, 'error');
+              return;
+            }
+            const formatted = `=== ${trackName.toUpperCase()} EXCHANGE KEYS (${list.length}) ===\n` +
+              list.map((t, i) => `${i + 1}. Team: ${t.team} [Reg: ${t.registrationId || 'N/A'}] → KEY: ${t.key}`).join('\n');
+            navigator.clipboard.writeText(formatted);
+            showToast(`📋 All ${list.length} ${trackName} keys copied! Ready to assign to rival ${trackName} players.`);
+          };
+
+          return (
+            <div className="ba-admin-dashboard ba-fade-in">
+              <div className="ba-admin-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+                <div>
+                  <div className="ba-admin-header-title" style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                    <span>🔧 Creating Teams &amp; Codes</span>
+                    <span style={{ fontSize: '0.85rem', background: 'rgba(0, 255, 255, 0.15)', border: '1px solid rgba(0, 255, 255, 0.4)', color: '#00ffff', borderRadius: '12px', padding: '0.15rem 0.6rem', fontWeight: 800 }}>
+                      {teamEntries.length} Total Submissions
+                    </span>
                   </div>
-                ))}
+                  <div style={{ color: '#8888aa', fontSize: '0.78rem', marginTop: '0.2rem' }}>
+                    Python, Java, and C codes are partitioned into isolated windows for simple intra-track code exchange.
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className="ba-neon-btn ba-btn-sm"
+                    onClick={() => {
+                      const text = EVENT_LANGUAGE_IDS.map(lid => {
+                        const list = trackMap[lid] || [];
+                        if (list.length === 0) return '';
+                        return `=== ${lid.toUpperCase()} TRACK KEYS (${list.length}) ===\n` +
+                          list.map((t, i) => `${i + 1}. Team: ${t.team} [Reg: ${t.registrationId || 'N/A'}] → KEY: ${t.key}`).join('\n');
+                      }).filter(Boolean).join('\n\n');
+                      navigator.clipboard.writeText(text || 'No submitted codes yet.');
+                      showToast('📋 All language exchange keys copied by track!');
+                    }}
+                    style={{ background: 'rgba(251, 191, 36, 0.12)', borderColor: 'rgba(251, 191, 36, 0.5)', color: '#fbbf24', fontWeight: 800 }}
+                    title="Copy formatted summary of all keys grouped by track for quick distribution to players"
+                  >
+                    📋 Copy All Track Keys
+                  </button>
+                  <button
+                    type="button"
+                    className="ba-neon-btn ba-btn-sm"
+                    onClick={fetchAdminRegistryData}
+                    style={{ background: 'rgba(255, 255, 255, 0.05)', borderColor: 'rgba(255, 255, 255, 0.2)', color: '#aaa' }}
+                  >
+                    🔄 Refresh
+                  </button>
+                </div>
               </div>
-            )}
-          </div>
-        )}
+
+              <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                {/* Language Isolation Board — identical to Side-by-Side Verification */}
+                <div style={{
+                  background: 'rgba(0, 0, 0, 0.45)',
+                  border: '1px solid rgba(0, 255, 255, 0.2)',
+                  borderRadius: '14px',
+                  padding: '0.9rem 1.2rem',
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+                    <span style={{ fontSize: '0.82rem', color: '#00ffff', fontWeight: 900, fontFamily: 'Space Grotesk, sans-serif' }}>
+                      🌐 Language isolation board
+                    </span>
+                    <span style={{ color: '#9fa0bd', fontSize: '0.73rem' }}>
+                      Python, Java, and C codes are partitioned into dedicated blocks. Distribute keys within the same language track.
+                    </span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))', gap: '0.6rem' }}>
+                    <button
+                      type="button"
+                      onClick={() => setTeamsLangFilter('all')}
+                      style={{
+                        padding: '0.75rem 0.85rem',
+                        borderRadius: '10px',
+                        border: teamsLangFilter === 'all' ? '2px solid #00ffff' : '1px solid rgba(255, 255, 255, 0.12)',
+                        background: teamsLangFilter === 'all' ? 'rgba(0, 255, 255, 0.22)' : 'rgba(255, 255, 255, 0.04)',
+                        color: teamsLangFilter === 'all' ? '#00ffff' : '#8888aa',
+                        fontWeight: teamsLangFilter === 'all' ? 900 : 600,
+                        fontSize: '0.8rem',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.45rem',
+                      }}
+                    >
+                      <span>🌐 All Tracks</span>
+                      <span style={{
+                        background: teamsLangFilter === 'all' ? '#00ffff' : 'rgba(255, 255, 255, 0.1)',
+                        color: teamsLangFilter === 'all' ? '#000' : '#aaa',
+                        borderRadius: '10px',
+                        padding: '0.1rem 0.45rem',
+                        fontSize: '0.68rem',
+                        fontWeight: 900,
+                      }}>
+                        {teamEntries.length}
+                      </span>
+                    </button>
+
+                    {EVENT_LANGUAGE_IDS.map((langKey) => {
+                      const cfg = TRACK_CONFIG[langKey];
+                      const count = (trackMap[langKey] || []).length;
+                      const isSelected = teamsLangFilter === langKey;
+
+                      return (
+                        <button
+                          key={langKey}
+                          type="button"
+                          onClick={() => setTeamsLangFilter(langKey)}
+                          style={{
+                            padding: '0.75rem 0.85rem',
+                            borderRadius: '10px',
+                            border: isSelected ? `2px solid ${cfg.color}` : '1px solid rgba(255, 255, 255, 0.12)',
+                            background: isSelected ? `${cfg.color}33` : 'rgba(255, 255, 255, 0.04)',
+                            color: isSelected ? cfg.color : '#8888aa',
+                            fontWeight: isSelected ? 900 : 600,
+                            fontSize: '0.8rem',
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease',
+                            display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.45rem',
+                          }}
+                        >
+                          <span>{cfg.icon} {cfg.name}</span>
+                          <span style={{
+                            background: isSelected ? cfg.color : 'rgba(255, 255, 255, 0.1)',
+                            color: isSelected ? '#000' : '#aaa',
+                            borderRadius: '10px',
+                            padding: '0.1rem 0.45rem',
+                            fontSize: '0.68rem',
+                            fontWeight: 900,
+                          }}>
+                            {count}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Secondary Toolbar: Search Filter */}
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '1rem',
+                  background: 'rgba(0, 0, 0, 0.25)',
+                  border: '1px solid rgba(255, 255, 255, 0.06)',
+                  borderRadius: '12px',
+                  padding: '0.7rem 1rem',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                    <span style={{ fontSize: '0.78rem', color: '#7a7a9e', fontWeight: 800 }}>Active View:</span>
+                    <span style={{ fontSize: '0.78rem', color: '#fbbf24', background: 'rgba(251, 191, 36, 0.1)', padding: '0.2rem 0.6rem', borderRadius: '6px', fontWeight: 700 }}>
+                      {teamsLangFilter === 'all' ? 'All Language Blocks' : `${TRACK_CONFIG[teamsLangFilter]?.name} Block Only`}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <input
+                      type="text"
+                      value={teamsSearchQuery}
+                      onChange={(e) => setTeamsSearchQuery(e.target.value)}
+                      placeholder="Search by team, key, or reg ID..."
+                      style={{
+                        background: 'rgba(0, 0, 0, 0.5)',
+                        border: '1px solid rgba(0, 255, 255, 0.25)',
+                        borderRadius: '8px',
+                        padding: '0.35rem 0.8rem',
+                        color: '#e4e4f0',
+                        fontSize: '0.78rem',
+                        outline: 'none',
+                        minWidth: '220px',
+                      }}
+                    />
+                    {teamsSearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setTeamsSearchQuery('')}
+                        style={{ background: 'transparent', border: 'none', color: '#888', cursor: 'pointer', fontSize: '0.8rem' }}
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {teamEntries.length === 0 ? (
+                  <div style={{ padding: '3rem', textAlign: 'center', color: '#7a7a9e' }}>
+                    <p>No code submissions yet. When teams submit their buggy code, their source code and planted bugs will appear here grouped by language!</p>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2.5rem' }}>
+                    {tracksToDisplay.map((trackId) => {
+                      const cfg = TRACK_CONFIG[trackId];
+                      const allTrackItems = trackMap[trackId] || [];
+                      const filteredItems = allTrackItems.filter(matchesSearch);
+
+                      return (
+                        <div
+                          key={trackId}
+                          style={{
+                            background: cfg.bgGradient,
+                            border: `1.5px solid ${cfg.borderColor}`,
+                            borderRadius: '18px',
+                            padding: '1.5rem',
+                            boxShadow: '0 8px 30px rgba(0, 0, 0, 0.45)',
+                          }}
+                        >
+                          {/* Block Window Header */}
+                          <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            flexWrap: 'wrap',
+                            gap: '1rem',
+                            marginBottom: '1.2rem',
+                            paddingBottom: '0.9rem',
+                            borderBottom: `1px solid ${cfg.color}33`,
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
+                              <span style={{ fontSize: '1.8rem' }}>{cfg.icon}</span>
+                              <div>
+                                <h3 style={{ margin: 0, color: cfg.color, fontSize: '1.3rem', fontFamily: 'Space Grotesk, sans-serif', fontWeight: 800 }}>
+                                  {cfg.name} Code Block
+                                </h3>
+                                <p style={{ margin: '0.2rem 0 0', color: '#a0a0c5', fontSize: '0.78rem' }}>
+                                  Dedicated {cfg.name} track — exchange keys only among {cfg.name} teams.
+                                </p>
+                              </div>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                              <span style={{
+                                background: `${cfg.color}22`,
+                                border: `1px solid ${cfg.color}55`,
+                                color: cfg.color,
+                                borderRadius: '12px',
+                                padding: '0.25rem 0.8rem',
+                                fontSize: '0.8rem',
+                                fontWeight: 800,
+                              }}>
+                                {allTrackItems.length} {allTrackItems.length === 1 ? 'Code' : 'Codes'} Submitted
+                              </span>
+                              {allTrackItems.length > 0 && (
+                                <button
+                                  type="button"
+                                  className="ba-neon-btn ba-btn-sm"
+                                  onClick={() => handleCopyTrackKeys(trackId)}
+                                  style={{
+                                    fontSize: '0.74rem',
+                                    padding: '0.35rem 0.8rem',
+                                    background: `${cfg.color}18`,
+                                    borderColor: `${cfg.color}66`,
+                                    color: cfg.color,
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  📋 Copy All {cfg.name} Keys
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Quick Exchange Keys Tray */}
+                          <div style={{
+                            background: 'rgba(0, 0, 0, 0.45)',
+                            border: `1px solid ${cfg.color}25`,
+                            borderRadius: '12px',
+                            padding: '1rem',
+                            marginBottom: '1.5rem',
+                          }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', marginBottom: allTrackItems.length > 0 ? '0.8rem' : 0 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <span style={{ fontSize: '0.9rem' }}>🔑</span>
+                                <span style={{ fontSize: '0.82rem', fontWeight: 800, color: cfg.color, fontFamily: 'Space Grotesk, sans-serif' }}>
+                                  Quick Exchange Tray — {cfg.name} Keys ({allTrackItems.length})
+                                </span>
+                              </div>
+                              <span style={{ fontSize: '0.72rem', color: '#8888aa' }}>
+                                ⚡ Click any key to copy &amp; assign to a rival {cfg.name} team
+                              </span>
+                            </div>
+
+                            {allTrackItems.length === 0 ? (
+                              <div style={{ color: '#7a7a9e', fontSize: '0.82rem', fontStyle: 'italic', padding: '0.4rem 0' }}>
+                                No {cfg.name} keys submitted yet. When a {cfg.name} participant clicks Submit Bug Code, their key will appear here instantly.
+                              </div>
+                            ) : (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem' }}>
+                                {allTrackItems.map(t => (
+                                  <button
+                                    key={t.key}
+                                    type="button"
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(t.key);
+                                      showToast(`📋 Copied ${cfg.name} Key ${t.key} for ${t.team}! Ready to give to a rival ${cfg.name} player.`);
+                                    }}
+                                    title={`Click to copy key ${t.key} for ${t.team}`}
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '0.45rem',
+                                      padding: '0.35rem 0.8rem',
+                                      background: 'rgba(0, 0, 0, 0.6)',
+                                      border: `1px solid ${cfg.color}66`,
+                                      borderRadius: '8px',
+                                      color: '#fff',
+                                      cursor: 'pointer',
+                                      transition: 'all 0.15s ease',
+                                    }}
+                                    onMouseEnter={e => { e.currentTarget.style.borderColor = '#00ffff'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+                                    onMouseLeave={e => { e.currentTarget.style.borderColor = `${cfg.color}66`; e.currentTarget.style.transform = 'translateY(0)'; }}
+                                  >
+                                    <span style={{ fontFamily: 'Courier New, monospace', fontWeight: 900, color: '#fbbf24', fontSize: '0.9rem', letterSpacing: '0.5px' }}>
+                                      {t.key}
+                                    </span>
+                                    <span style={{ color: '#ccc', fontSize: '0.75rem', fontWeight: 600 }}>
+                                      ({t.team})
+                                    </span>
+                                    <span style={{ fontSize: '0.75rem', opacity: 0.8 }}>📋</span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* List of Submitted Code Cards */}
+                          {filteredItems.length === 0 ? (
+                            <div style={{ padding: '2rem', textAlign: 'center', color: '#7a7a9e', background: 'rgba(0,0,0,0.2)', borderRadius: '12px' }}>
+                              <p style={{ margin: 0, fontSize: '0.88rem' }}>
+                                {allTrackItems.length === 0
+                                  ? `No ${cfg.name} code submissions registered yet.`
+                                  : `No ${cfg.name} submissions match search query "${teamsSearchQuery}".`}
+                              </p>
+                            </div>
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                              {filteredItems.map((t) => (
+                                <div
+                                  key={t.key}
+                                  style={{
+                                    background: 'rgba(0, 0, 0, 0.55)',
+                                    border: `1px solid ${cfg.color}33`,
+                                    borderRadius: '14px',
+                                    padding: '1.4rem',
+                                    transition: 'border-color 0.2s',
+                                  }}
+                                >
+                                  {/* Card Header */}
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.6rem' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', flexWrap: 'wrap' }}>
+                                      <span style={{ fontSize: '1.2rem', fontWeight: 800, color: '#fff', fontFamily: 'Space Grotesk, sans-serif' }}>
+                                        Team: {t.team}
+                                      </span>
+                                      {t.registrationId && (
+                                        <span style={{ fontSize: '0.72rem', color: '#4ade80', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.25)', padding: '0.2rem 0.5rem', borderRadius: '4px', fontFamily: 'Courier New, monospace' }}>
+                                          ID: {t.registrationId}
+                                        </span>
+                                      )}
+                                      <span style={{
+                                        padding: '0.2rem 0.6rem',
+                                        fontSize: '0.72rem',
+                                        fontWeight: 800,
+                                        color: cfg.color,
+                                        background: cfg.badgeBg,
+                                        borderRadius: '6px',
+                                        border: `1px solid ${cfg.color}44`,
+                                        fontFamily: 'Space Grotesk, sans-serif',
+                                      }}>
+                                        {cfg.icon} {cfg.name}
+                                      </span>
+                                    </div>
+
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                                      <span style={{
+                                        fontFamily: 'Courier New, monospace',
+                                        color: '#fbbf24',
+                                        fontWeight: 900,
+                                        fontSize: '1.1rem',
+                                        background: 'rgba(251, 191, 36, 0.1)',
+                                        padding: '0.3rem 0.8rem',
+                                        borderRadius: '8px',
+                                        border: '1px solid rgba(251, 191, 36, 0.35)',
+                                        letterSpacing: '1px',
+                                      }}>
+                                        KEY: {t.key}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        className="ba-neon-btn ba-btn-sm"
+                                        onClick={() => {
+                                          navigator.clipboard.writeText(t.key);
+                                          showToast(`📋 Key ${t.key} copied for ${t.team}!`);
+                                        }}
+                                        style={{
+                                          padding: '0.35rem 0.75rem',
+                                          fontSize: '0.75rem',
+                                          background: 'rgba(0, 255, 255, 0.1)',
+                                          borderColor: 'rgba(0, 255, 255, 0.4)',
+                                          color: '#00ffff',
+                                        }}
+                                      >
+                                        📋 Copy Key
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  <CodeEditor
+                                    code={t.code}
+                                    language={t.language}
+                                    readOnly
+                                    teamInfo={{ team: t.team }}
+                                  />
+
+                                  <div style={{ marginTop: '1.2rem', background: 'rgba(255, 107, 107, 0.05)', border: '1px solid rgba(255, 107, 107, 0.2)', padding: '1.2rem', borderRadius: '12px' }}>
+                                    <h4 style={{ color: '#ff6b6b', margin: '0 0 0.8rem', fontFamily: 'Space Grotesk, sans-serif', fontSize: '0.92rem' }}>
+                                      🐛 Planted Bugs Registered by Team "{t.team}" ({(t.createdBugs || []).length}):
+                                    </h4>
+                                    {(t.createdBugs || []).length === 0 ? (
+                                      <div style={{ color: '#8888aa', fontSize: '0.82rem', fontStyle: 'italic' }}>
+                                        No specific planted bug explanations registered.
+                                      </div>
+                                    ) : (
+                                      (t.createdBugs || []).map((b, i) => (
+                                        <div key={i} style={{ background: 'rgba(0, 0, 0, 0.3)', borderLeft: '3px solid #ff6b6b', padding: '0.7rem 1rem', borderRadius: '0 8px 8px 0', marginBottom: '0.5rem' }}>
+                                          <span style={{ color: '#ff6b6b', fontWeight: 800, fontSize: '0.82rem', fontFamily: 'Space Grotesk, sans-serif' }}>
+                                            BUG #{i + 1} — Line #{b.lineNumber || 'N/A'}:
+                                          </span>
+                                          <p style={{ margin: '0.2rem 0 0', color: '#e4e4f0', fontSize: '0.88rem' }}>
+                                            {b.description}
+                                          </p>
+                                        </div>
+                                      ))
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+
+                    {/* Fallback for other languages if any exist */}
+                    {teamsLangFilter === 'all' && otherEntries.length > 0 && (
+                      <div
+                        style={{
+                          background: 'rgba(100, 100, 120, 0.08)',
+                          border: '1.5px solid rgba(255, 255, 255, 0.2)',
+                          borderRadius: '18px',
+                          padding: '1.5rem',
+                        }}
+                      >
+                        <h3 style={{ margin: '0 0 1rem', color: '#aaa', fontSize: '1.2rem', fontFamily: 'Space Grotesk, sans-serif' }}>
+                          📦 Other Languages ({otherEntries.length})
+                        </h3>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                          {otherEntries.filter(matchesSearch).map(t => (
+                            <div key={t.key} style={{ background: 'rgba(0, 0, 0, 0.4)', border: '1px solid rgba(255, 255, 255, 0.15)', borderRadius: '14px', padding: '1.2rem' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
+                                <span style={{ fontWeight: 800, color: '#fff' }}>Team: {t.team} ({t.language})</span>
+                                <span style={{ fontFamily: 'Courier New', color: '#fbbf24', fontWeight: 800 }}>KEY: {t.key}</span>
+                              </div>
+                              <CodeEditor code={t.code} language={t.language} readOnly teamInfo={{ team: t.team }} />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* TAB 2: Finding Teams (Submitted Reports & Found Bugs) */}
         {adminActiveTab === 'matcher' && (
