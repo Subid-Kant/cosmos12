@@ -26,6 +26,12 @@ const IS_PROD = process.env.NODE_ENV === 'production';
 // ─── Express App Setup ────────────────────────────────────────────────────────
 const app = express();
 
+// Render terminates HTTPS at one reverse proxy and forwards the client's IP in
+// X-Forwarded-For. Trust exactly that single proxy in production so
+// express-rate-limit keys requests by the actual student IP rather than the
+// shared Render proxy, while keeping local development unchanged.
+app.set('trust proxy', IS_PROD ? 1 : false);
+
 // Security headers (production only to avoid dev friction)
 if (IS_PROD) {
   app.use(helmet({
