@@ -15,6 +15,22 @@
   color: #e4e4f0;
 }
 
+/* The arena is used by a large live event. Keep decoration calm and avoid
+   GPU-heavy continuous animation on participant and admin screens. */
+.ba-orb,
+.ba-waitroom-ring::before,
+.ba-waitroom-ring::after,
+.ba-waitroom-icon,
+.ba-waitroom-pulse-dot,
+.ba-badge,
+.ba-badge-dot,
+.ba-footer-glow {
+  animation: none !important;
+}
+
+.ba-orb { filter: blur(70px); opacity: 0.45; }
+.ba-waitroom-pulse-dot { box-shadow: none; }
+
 /* ─── Ambient Glow Orbs ───────────────────────────────────────────────────── */
 .ba-orb {
   position: fixed;

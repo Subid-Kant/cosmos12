@@ -107,6 +107,15 @@ const RegistrySchema = new mongoose.Schema({
 }, { minimize: false });
 const Registry = mongoose.model('Registry', RegistrySchema);
 
+// Reports are stored independently from the shared arena registry. A registry
+// refresh, phase transition, or server restart therefore cannot erase one
+// participant's completed report.
+const BugReportSchema = new mongoose.Schema({
+  reportSlot: { type: String, required: true, unique: true, index: true },
+  report: { type: mongoose.Schema.Types.Mixed, required: true },
+}, { timestamps: true, minimize: false });
+const BugReport = mongoose.model('BugReport', BugReportSchema);
+
 // SSE keeps phase changes and proctoring alerts instant without making every
 // participant repeatedly download the full registry document.
 const phaseSubscribers = new Set();
@@ -299,6 +308,20 @@ app.patch('/api/event-phase', requireAdmin, async (req, res) => {
     doc.data = { ...nextData, globalState };
     doc.markModified('data');
     await doc.save();
+    // Persist reports promoted from live hunting drafts independently too.
+    // This makes auto-submitted partial reports just as durable as reports
+    // submitted with the player button.
+    if (previous === 'hunting' && phase !== 'hunting') {
+      await Promise.all(
+        (nextData.reports || []).filter(report => report?.reportSlot).map(report =>
+          BugReport.findOneAndUpdate(
+            { reportSlot: report.reportSlot },
+            { $set: { reportSlot: report.reportSlot, report } },
+            { upsert: true, setDefaultsOnInsert: true }
+          )
+        )
+      );
+    }
     publishPhase(globalState);
     res.json({ success: true, globalState });
   } catch (err) {
@@ -406,8 +429,13 @@ app.get('/health', (req, res) => {
 // ─── Registry Routes ──────────────────────────────────────────────────────────
 app.get('/api/registry', async (req, res) => {
   try {
-    const doc = await getRegistryDoc();
-    res.json(doc.data || { reports: [] });
+    const [doc, durableReports] = await Promise.all([
+      getRegistryDoc(),
+      BugReport.find({}, { report: 1, _id: 0 }).lean(),
+    ]);
+    const data = doc.data || { reports: [] };
+    // Keep legacy reports for compatibility while adding durable submissions.
+    res.json({ ...data, reports: [...(Array.isArray(data.reports) ? data.reports : []), ...durableReports.map(item => item.report)] });
   } catch (err) {
     console.error('GET /api/registry error:', err.message);
     res.status(500).json({ error: 'Server error' });
@@ -420,6 +448,11 @@ app.put('/api/registry', requireAdmin, async (req, res) => {
     doc.data = req.body;
     doc.markModified('data');
     await doc.save();
+    // The existing admin "Wipe Test Codes" action intentionally sends an
+    // empty reports array. Mirror that deliberate wipe in durable storage.
+    if (Array.isArray(req.body?.reports) && req.body.reports.length === 0) {
+      await BugReport.deleteMany({});
+    }
     res.json(doc.data);
   } catch (err) {
     console.error('PUT /api/registry error:', err.message);
@@ -481,6 +514,13 @@ app.post('/api/reports', async (req, res) => {
     if (result.matchedCount !== 1) {
       return res.status(409).json({ error: 'The bug hunting phase has ended. Reports are locked.' });
     }
+    // Persist independently as the source of truth. The registry slot above
+    // remains for fast phase operations and backwards-compatible views.
+    await BugReport.findOneAndUpdate(
+      { reportSlot: report.reportSlot },
+      { $set: { reportSlot: report.reportSlot, report } },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
     res.status(201).json({ success: true, id: report.id });
   } catch (err) {
     console.error('Report save error:', err);

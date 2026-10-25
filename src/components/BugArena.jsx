@@ -4930,7 +4930,7 @@ const BugArena = ({ onAbort }) => {
 
                       {/* Re-entry Request Banner */}
                       {report.reentryRequested && report.locked && (
-                        <div style={{ background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.4)', borderRadius: '10px', padding: '0.9rem 1.2rem', marginBottom: '0.8rem', animation: 'ba-pulse-warn 2s infinite' }}>
+                        <div style={{ background: 'rgba(251,191,36,0.10)', border: '1px solid rgba(251,191,36,0.35)', borderRadius: '10px', padding: '0.9rem 1.2rem', marginBottom: '0.8rem' }}>
                           <div style={{ fontSize: '0.85rem', color: '#fbbf24', fontWeight: 800, marginBottom: '0.2rem', fontFamily: 'Space Grotesk, sans-serif', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                             🔔 Re-entry Requested
                           </div>
@@ -4973,12 +4973,9 @@ const BugArena = ({ onAbort }) => {
     <div className="ba-universe">
       {isLocked && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'linear-gradient(135deg, #1a0000 0%, #2d0000 50%, #1a0000 100%)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '1rem', padding: '2rem' }}>
-          {/* Animated warning stripes */}
-          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '6px', background: 'repeating-linear-gradient(90deg, #ff0000 0px, #ff0000 30px, transparent 30px, transparent 60px)', animation: 'ba-stripe-anim 1s linear infinite' }} />
-          <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '6px', background: 'repeating-linear-gradient(90deg, #ff0000 0px, #ff0000 30px, transparent 30px, transparent 60px)', animation: 'ba-stripe-anim 1s linear infinite reverse' }} />
-
-          <div style={{ fontSize: '4rem', animation: 'ba-pulse-warn 1s ease-in-out infinite' }}>🚨</div>
-          <h1 style={{ fontFamily: 'Space Grotesk, sans-serif', color: '#ff4444', textAlign: 'center', fontSize: 'clamp(1.4rem, 5vw, 2.5rem)', margin: 0, textShadow: '0 0 30px rgba(255,68,68,0.8)' }}>
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '4px', background: '#c2413c' }} />
+          <div style={{ fontSize: '3rem' }}>🔒</div>
+          <h1 style={{ fontFamily: 'Space Grotesk, sans-serif', color: '#ff6b6b', textAlign: 'center', fontSize: 'clamp(1.4rem, 5vw, 2.5rem)', margin: 0 }}>
             ACCOUNT LOCKED
           </h1>
           <p style={{ color: '#ff9999', fontSize: '1.1rem', textAlign: 'center', maxWidth: '560px', lineHeight: 1.6, margin: 0 }}>
