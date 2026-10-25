@@ -1078,10 +1078,11 @@ const BugArena = ({ onAbort }) => {
     }
   }, [isSetup, isFullscreen, isRegistered, isAdminLoggedIn, phase, registrationId, teamName]);
 
-  // Proctoring is ONLY active when user is in code-writing phases
-  // (not during registration, setup, admin mode, or while locked / in unlock grace period)
+  // Proctoring stays active across every player screen while a live coding or
+  // hunting phase is running. A participant cannot evade it by clicking the
+  // local Exchange/Create/Hunt navigation.
   const isProctoringActive =
-    isSetup && isFullscreen && isRegistered && (phase === 'create' || phase === 'hunt') && !isAdminLoggedIn && !isLocked && !unlockGracePeriod;
+    isSetup && isFullscreen && isRegistered && ['coding', 'hunting'].includes(globalEventPhase) && !isAdminLoggedIn && !isLocked && !unlockGracePeriod;
 
   useEffect(() => {
     if (!isProctoringActive) return; // Guard: only run during active code phases
@@ -1136,6 +1137,32 @@ const BugArena = ({ onAbort }) => {
       }, 400);
     };
     const handleFocus = () => { if (blurTimer) { clearTimeout(blurTimer); blurTimer = null; } };
+
+    // Browser side panels (including AI assistants) cannot be inspected by a
+    // web page for privacy reasons. In fullscreen they normally either take
+    // focus or change the page viewport; both are contest-boundary violations.
+    let viewportBaseline = null;
+    let viewportBaselineTimer = null;
+    const readViewport = () => ({
+      width: Math.round(window.visualViewport?.width || window.innerWidth),
+      height: Math.round(window.visualViewport?.height || window.innerHeight),
+    });
+    const setViewportBaseline = () => { viewportBaseline = readViewport(); };
+    viewportBaselineTimer = setTimeout(setViewportBaseline, 700);
+    const handleViewportChange = () => {
+      if (!viewportBaseline) return;
+      const current = readViewport();
+      // A substantial resize while native fullscreen is active is not needed
+      // for the arena and is characteristic of a browser side panel/tool.
+      if (Math.abs(current.width - viewportBaseline.width) >= 100 || Math.abs(current.height - viewportBaseline.height) >= 80) {
+        handleCheatingAttempt('Arena viewport changed — external browser panel or tool detected');
+      }
+    };
+    const focusWatch = setInterval(() => {
+      if (!document.hidden && !document.hasFocus()) {
+        handleCheatingAttempt('Browser focus moved away from the arena');
+      }
+    }, 750);
     const handleCopyPaste = (e) => {
       e.preventDefault();
       handleCheatingAttempt('Copy / Paste / Cut operation blocked');
@@ -1218,6 +1245,8 @@ const BugArena = ({ onAbort }) => {
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('beforeunload', handleBeforeUnload);
     window.addEventListener('pagehide', handlePageHide);
+    window.addEventListener('resize', handleViewportChange);
+    window.visualViewport?.addEventListener('resize', handleViewportChange);
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
@@ -1230,7 +1259,11 @@ const BugArena = ({ onAbort }) => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('beforeunload', handleBeforeUnload);
       window.removeEventListener('pagehide', handlePageHide);
+      window.removeEventListener('resize', handleViewportChange);
+      window.visualViewport?.removeEventListener('resize', handleViewportChange);
       if (blurTimer) clearTimeout(blurTimer);
+      if (viewportBaselineTimer) clearTimeout(viewportBaselineTimer);
+      clearInterval(focusWatch);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isProctoringActive, phase, teamName, registrationId]);
