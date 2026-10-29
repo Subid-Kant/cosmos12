@@ -2,7 +2,9 @@
 .env
 .env.local
 .env.production
+.env.example
 server/.env
+server/.env.example
 
 # Uploaded payment screenshots — keep off git
 server/uploads/
